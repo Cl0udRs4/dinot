@@ -2,8 +2,11 @@ package cli
 
 import (
     "fmt"
+    "os"
 
     "github.com/Cl0udRs4/dinot/internal/builder/config"
+    "github.com/Cl0udRs4/dinot/internal/builder/generator"
+    "github.com/Cl0udRs4/dinot/internal/builder/signature"
     "github.com/Cl0udRs4/dinot/internal/builder/validation"
     "github.com/spf13/cobra"
 )
@@ -48,17 +51,48 @@ This command generates a client executable with the specified protocols, servers
             return fmt.Errorf("validation error: %w", err)
         }
 
-        // Print the configuration (for now, will be replaced with actual build logic)
-        fmt.Printf("Configuration:\n")
-        fmt.Printf("  Protocols: %v\n", cfg.Protocols)
-        fmt.Printf("  Domain: %s\n", cfg.Domain)
-        fmt.Printf("  Servers: %v\n", cfg.Servers)
-        fmt.Printf("  Modules: %v\n", cfg.Modules)
-        fmt.Printf("  Encryption: %s\n", cfg.Encryption)
-        fmt.Printf("  Debug: %v\n", cfg.Debug)
-        fmt.Printf("  Version: %s\n", cfg.Version)
-        fmt.Printf("  Signature: %v\n", cfg.Signature)
+        // Create output directory if it doesn't exist
+        outputDir := "build"
+        if err := os.MkdirAll(outputDir, 0755); err != nil {
+            return fmt.Errorf("failed to create output directory: %w", err)
+        }
 
+        // Create a new generator
+        gen := generator.NewGenerator(cfg, outputDir)
+
+        // Set up signature manager if signature verification is enabled
+        if cfg.Signature {
+            sm := signature.NewSignatureManager(
+                "keys/private.pem",
+                "keys/public.pem",
+            )
+
+            // Create keys directory if it doesn't exist
+            if err := os.MkdirAll("keys", 0755); err != nil {
+                return fmt.Errorf("failed to create keys directory: %w", err)
+            }
+
+            // Load or generate keys
+            err := sm.LoadKeys()
+            if err == signature.ErrKeyNotFound {
+                fmt.Println("Generating new key pair...")
+                if err := sm.GenerateKeyPair(2048); err != nil {
+                    return fmt.Errorf("failed to generate key pair: %w", err)
+                }
+            } else if err != nil {
+                return fmt.Errorf("failed to load keys: %w", err)
+            }
+
+            gen.SetSignatureManager(sm)
+        }
+
+        // Generate the client
+        outputPath, err := gen.Generate()
+        if err != nil {
+            return fmt.Errorf("failed to generate client: %w", err)
+        }
+
+        fmt.Printf("Client generated successfully: %s\n", outputPath)
         return nil
     },
 }

@@ -16,17 +16,40 @@ import (
 // EncryptedListener wraps a Listener with encryption support
 type EncryptedListener struct {
     baseListener     Listener
-    messageProcessor *encryption.MessageProcessor
+    securityManager  *encryption.SecurityManager
     clientManager    *client.ClientManager
-    logger           *logging.Logger
+    logger           logging.Logger
     mu               sync.RWMutex
 }
 
 // NewEncryptedListener creates a new encrypted listener
-func NewEncryptedListener(baseListener Listener, clientManager *client.ClientManager, logger *logging.Logger) *EncryptedListener {
+func NewEncryptedListener(baseListener Listener, clientManager *client.ClientManager, logger logging.Logger) *EncryptedListener {
+    // Create security manager with default configuration
+    securityConfig := encryption.DefaultSecurityConfig()
+    securityManager, err := encryption.NewSecurityManager(securityConfig)
+    if err != nil {
+        logger.Error("Failed to create security manager", map[string]interface{}{
+            "error": err.Error(),
+        })
+        // Fall back to a basic message processor if security manager creation fails
+        return &EncryptedListener{
+            baseListener:     baseListener,
+            securityManager:  nil,
+            clientManager:    clientManager,
+            logger:           logger,
+        }
+    }
+    
+    // Start the security manager
+    if err := securityManager.Start(); err != nil {
+        logger.Error("Failed to start security manager", map[string]interface{}{
+            "error": err.Error(),
+        })
+    }
+    
     return &EncryptedListener{
         baseListener:     baseListener,
-        messageProcessor: encryption.NewMessageProcessor(),
+        securityManager:  securityManager,
         clientManager:    clientManager,
         logger:           logger,
     }
@@ -67,17 +90,25 @@ func (l *EncryptedListener) HandleConnection(conn net.Conn) {
     // Register the client
     clientID := fmt.Sprintf("%s-%d", conn.RemoteAddr().String(), time.Now().UnixNano())
     
-    // Register the client for encryption
-    clientEnc := l.messageProcessor.RegisterClient(clientID)
+    // Register the client with the security manager
+    var clientEnc *encryption.ClientEncryption
+    if l.securityManager != nil {
+        clientEnc = l.securityManager.RegisterClient(clientID)
+    }
     
     // Register the client with the client manager
     c := client.NewClient(clientID, "Client-"+clientID, conn.RemoteAddr().String(), "unknown", "unknown", []string{}, l.GetProtocol())
     l.clientManager.RegisterClient(c)
     
-    // Remove the unused variable warning
-    _ = clientEnc
+    // Log using both structured logging and printf
+    l.logger.Info("New encrypted connection", map[string]interface{}{
+        "client_id":  clientID,
+        "remote_addr": conn.RemoteAddr().String(),
+        "protocol":    l.GetProtocol(),
+        "encryption":  clientEnc != nil,
+    })
     
-    // Log new connection
+    // Also log using printf for compatibility with main branch
     fmt.Printf("New encrypted connection: client_id=%s, remote_addr=%s, protocol=%s\n", 
         clientID, conn.RemoteAddr().String(), l.GetProtocol())
     
@@ -89,15 +120,33 @@ func (l *EncryptedListener) HandleConnection(conn net.Conn) {
 func (l *EncryptedListener) handleClient(conn net.Conn, clientID string) {
     defer func() {
         conn.Close()
+        // Unregister client from both client manager and security manager
         l.clientManager.UnregisterClient(clientID)
+        if l.securityManager != nil {
+            l.securityManager.UnregisterClient(clientID)
+        }
+        
+        // Log using both structured logging and printf
+        l.logger.Info("Client disconnected", map[string]interface{}{
+            "client_id": clientID,
+        })
         fmt.Printf("Client disconnected: client_id=%s\n", clientID)
     }()
     
     buffer := make([]byte, 4096)
     
     for {
+        // Apply jitter to read deadline if security manager is available
+        readDeadline := 30 * time.Second
+        if l.securityManager != nil {
+            jitter := l.securityManager.ApplyJitter()
+            if jitter > 0 {
+                readDeadline += jitter
+            }
+        }
+        
         // Set read deadline
-        conn.SetReadDeadline(time.Now().Add(30 * time.Second))
+        conn.SetReadDeadline(time.Now().Add(readDeadline))
         
         // Read data from the connection
         n, err := conn.Read(buffer)
@@ -108,7 +157,17 @@ func (l *EncryptedListener) handleClient(conn net.Conn, clientID string) {
         
         // Process the incoming message
         data := buffer[:n]
-        processedData, err := l.messageProcessor.ProcessIncomingMessage(clientID, data)
+        var processedData []byte
+        
+        if l.securityManager != nil {
+            // Use security manager for processing if available
+            processedData, err = l.securityManager.ProcessIncomingMessage(clientID, data)
+        } else {
+            // Fall back to message processor if security manager is not available
+            messageProcessor := encryption.NewMessageProcessor()
+            processedData, err = messageProcessor.ProcessIncomingMessage(clientID, data)
+        }
+        
         if err != nil {
             fmt.Printf("Error processing incoming message: client_id=%s, error=%s\n", clientID, err.Error())
             continue
@@ -122,7 +181,17 @@ func (l *EncryptedListener) handleClient(conn net.Conn, clientID string) {
         }
         
         // Process the outgoing message
-        encryptedResponse, err := l.messageProcessor.ProcessOutgoingMessage(clientID, response)
+        var encryptedResponse []byte
+        
+        if l.securityManager != nil {
+            // Use security manager for processing if available
+            encryptedResponse, err = l.securityManager.ProcessOutgoingMessage(clientID, response)
+        } else {
+            // Fall back to message processor if security manager is not available
+            messageProcessor := encryption.NewMessageProcessor()
+            encryptedResponse, err = messageProcessor.ProcessOutgoingMessage(clientID, response)
+        }
+        
         if err != nil {
             fmt.Printf("Error processing outgoing message: client_id=%s, error=%s\n", clientID, err.Error())
             continue
@@ -206,22 +275,75 @@ func (l *EncryptedListener) handleRegisterCommand(clientID string, params json.R
     }
     
     // Update client information - directly update fields since setter methods don't exist
-    // Note: In a real implementation, we would add these setter methods to the Client struct
     c.Name = registerParams.Hostname
     c.OS = registerParams.OS
     c.Architecture = registerParams.Arch
     c.SupportedModules = registerParams.Modules
     // We don't have a direct field for protocols in the Client struct
     
+    // Log using both structured logging and printf
+    l.logger.Info("Client registered", map[string]interface{}{
+        "client_id": clientID,
+        "hostname":  registerParams.Hostname,
+        "os":        registerParams.OS,
+        "arch":      registerParams.Arch,
+        "modules":   registerParams.Modules,
+        "protocols": registerParams.Protocols,
+    })
+    
     fmt.Printf("Client registered: client_id=%s, hostname=%s, os=%s, arch=%s\n", 
         clientID, registerParams.Hostname, registerParams.OS, registerParams.Arch)
     
     // Get client encryption info
-    clientEnc, err := l.messageProcessor.GetClientEncryption(clientID)
-    if err == nil {
-        encType := clientEnc.GetEncryptionType()
-        fmt.Printf("Client encryption: client_id=%s, encryption_type=%s\n", 
-            clientID, encType)
+    var encType string = "none"
+    
+    if l.securityManager != nil {
+        // Get encryption info from security manager
+        messageProcessor := l.securityManager.GetMessageProcessor()
+        if messageProcessor != nil {
+            clientEnc, err := messageProcessor.GetClientEncryption(clientID)
+            if err == nil && clientEnc != nil {
+                encType = string(clientEnc.GetEncryptionType())
+                l.logger.Info("Client encryption", map[string]interface{}{
+                    "client_id":       clientID,
+                    "encryption_type": encType,
+                })
+                fmt.Printf("Client encryption: client_id=%s, encryption_type=%s\n", 
+                    clientID, encType)
+            }
+        }
+        
+        // Generate authentication token for the client if JWT is enabled
+        authenticator := l.securityManager.GetAuthenticator()
+        if authenticator != nil {
+            token, err := authenticator.GenerateJWT(clientID, "client")
+            if err == nil {
+                // Include token in response
+                response := struct {
+                    Status  string `json:"status"`
+                    Message string `json:"message"`
+                    Token   string `json:"token"`
+                }{
+                    Status:  "success",
+                    Message: "client registered",
+                    Token:   token,
+                }
+                return json.Marshal(response)
+            }
+        }
+    } else {
+        // Fall back to message processor if security manager is not available
+        messageProcessor := encryption.NewMessageProcessor()
+        clientEnc, err := messageProcessor.GetClientEncryption(clientID)
+        if err == nil && clientEnc != nil {
+            encType = string(clientEnc.GetEncryptionType())
+            l.logger.Info("Client encryption", map[string]interface{}{
+                "client_id":       clientID,
+                "encryption_type": encType,
+            })
+            fmt.Printf("Client encryption: client_id=%s, encryption_type=%s\n", 
+                clientID, encType)
+        }
     }
     
     return []byte(`{"status":"success","message":"client registered"}`), nil
@@ -237,32 +359,50 @@ func (l *EncryptedListener) handleStatusCommand(clientID string) ([]byte, error)
     
     // Get client encryption info
     encType := "none"
-    clientEnc, err := l.messageProcessor.GetClientEncryption(clientID)
-    if err == nil {
-        encType = string(clientEnc.GetEncryptionType())
+    securityEnabled := false
+    
+    if l.securityManager != nil {
+        securityEnabled = true
+        // Get encryption info from security manager
+        messageProcessor := l.securityManager.GetMessageProcessor()
+        if messageProcessor != nil {
+            clientEnc, err := messageProcessor.GetClientEncryption(clientID)
+            if err == nil && clientEnc != nil {
+                encType = string(clientEnc.GetEncryptionType())
+            }
+        }
+    } else {
+        // Fall back to message processor if security manager is not available
+        messageProcessor := encryption.NewMessageProcessor()
+        clientEnc, err := messageProcessor.GetClientEncryption(clientID)
+        if err == nil && clientEnc != nil {
+            encType = string(clientEnc.GetEncryptionType())
+        }
     }
     
     // Create status response
     status := struct {
-        Status      string   `json:"status"`
-        ClientID    string   `json:"client_id"`
-        Name        string   `json:"name"`
-        OS          string   `json:"os"`
-        Arch        string   `json:"arch"`
-        Modules     []string `json:"modules"`
-        Protocol    string   `json:"protocol"`
-        Encryption  string   `json:"encryption"`
-        LastSeen    string   `json:"last_seen"`
+        Status          string   `json:"status"`
+        ClientID        string   `json:"client_id"`
+        Name            string   `json:"name"`
+        OS              string   `json:"os"`
+        Arch            string   `json:"arch"`
+        Modules         []string `json:"modules"`
+        Protocol        string   `json:"protocol"`
+        Encryption      string   `json:"encryption"`
+        LastSeen        string   `json:"last_seen"`
+        SecurityEnabled bool     `json:"security_enabled"`
     }{
-        Status:      "success",
-        ClientID:    c.ID,
-        Name:        c.Name,
-        OS:          c.OS,
-        Arch:        c.Architecture,
-        Modules:     c.SupportedModules,
-        Protocol:    c.Protocol,
-        Encryption:  encType,
-        LastSeen:    c.LastSeen.Format(time.RFC3339),
+        Status:          "success",
+        ClientID:        c.ID,
+        Name:            c.Name,
+        OS:              c.OS,
+        Arch:            c.Architecture,
+        Modules:         c.SupportedModules,
+        Protocol:        c.Protocol,
+        Encryption:      encType,
+        LastSeen:        c.LastSeen.Format(time.RFC3339),
+        SecurityEnabled: securityEnabled,
     }
     
     return json.Marshal(status)

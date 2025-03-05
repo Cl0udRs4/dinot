@@ -1,7 +1,6 @@
 package encryption
 
 import (
-    "encoding/json"
     "errors"
 
     clientenc "github.com/Cl0udRs4/dinot/internal/client/encryption"

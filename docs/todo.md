@@ -89,6 +89,10 @@
 - [x] 实现心跳检测功能，支持1s～24h随机延时与超时切换
 - [ ] 实现异常上报功能
 
+#### 2.1.3 控制接口实现
+- [x] 实现Console模式（命令行交互）
+- [ ] 实现HTTP API（RESTful接口）
+
 ### 任务2.1.2：客户端管理模块实现
 - **完成时间**：2025-03-05
 - **主要内容**：
@@ -137,4 +141,106 @@
   - 解决方案：在检测超时时考虑客户端的个性化心跳间隔
 - **下一步计划**：
   - 实现异常上报功能
-  - 开发控制接口（Console模式）
+  - 开发控制接口（Console模式和HTTP API）
+
+### 任务2.1.3a：控制接口实现 - Console模式
+- **完成时间**：2025-03-05
+- **主要内容**：
+  1. 实现命令行交互式控制台界面
+  2. 支持客户端管理、状态更新和心跳配置等功能
+  3. 编写单元测试和编译测试，确保代码质量
+- **代码实现**：
+  - 控制台界面（Console）：
+    - 支持命令注册和执行
+    - 提供交互式命令行界面
+    - 集成客户端管理器和心跳监控器
+    - 支持命令历史和帮助信息
+  - 服务器集成（Server）：
+    - 整合监听器管理器、客户端管理器和心跳监控器
+    - 提供统一的启动和停止接口
+    - 支持信号处理和优雅关闭
+  - 命令实现：
+    - help：显示可用命令列表和使用说明
+    - list：列出所有客户端或按状态筛选
+    - info：显示客户端详细信息
+    - status：设置客户端状态
+    - heartbeat：配置心跳设置（检查间隔、超时时间、随机间隔）
+    - exit：退出控制台
+- **测试内容**：
+  - 控制台命令执行和参数解析
+  - 服务器创建和组件集成
+  - 控制台启动和停止
+  - 无效命令和参数处理
+  - 客户端列表和信息显示
+  - 状态更新和心跳配置
+- **实现特点**：
+  - 模块化设计，每个命令独立实现
+  - 使用bufio.Reader读取用户输入
+  - 支持命令参数解析和验证
+  - 提供友好的错误提示和帮助信息
+  - 支持按状态筛选客户端
+  - 支持详细的客户端信息显示
+  - 支持灵活的心跳配置
+- **调用示例**：
+  ```
+  > help
+  Available commands:
+    list       - List all clients or filter by status
+      Usage: list [status]
+    info       - Show detailed information about a client
+      Usage: info <client_id>
+    status     - Set a client's status
+      Usage: status <client_id> <online|offline|busy|error> [error_message]
+    heartbeat  - Configure heartbeat settings
+      Usage: heartbeat <check|timeout|random> [args...]
+    exit       - Exit the console
+      Usage: exit
+    help       - Display available commands
+      Usage: help
+  
+  > list
+  All clients:
+  ID                                   IP Address      Status     Last Seen      
+  --------------------------------------------------------------------------------
+  test-client-id                       192.168.1.100   online     0s ago
+  
+  Total: 1 clients
+  
+  > info test-client-id
+  Client Information:
+    ID:              test-client-id
+    Name:            Test Client
+    IP Address:      192.168.1.100
+    OS:              Linux
+    Architecture:    x86_64
+    Status:          online
+    Protocol:        tcp
+    Registered At:   2025-03-05T04:14:31Z
+    Last Seen:       2025-03-05T04:14:31Z (0s ago)
+    Heartbeat:       1m0s
+    Supported Modules:
+      - shell
+      - file
+      - process
+    Active Modules:
+      None
+  
+  > status test-client-id busy
+  Updated client test-client-id status to busy
+  
+  > heartbeat check 45
+  Set heartbeat check interval to 45s
+  
+  > heartbeat random enable 5 300
+  Enabled random heartbeat intervals (5s - 5m0s)
+  ```
+- **遇到的问题与解决方案**：
+  - 问题：控制台测试中的输入模拟实现复杂
+  - 解决方案：使用io.Pipe创建模拟输入流，简化测试代码
+  - 问题：客户端状态比较逻辑错误
+  - 解决方案：将客户端状态比较从枚举类型改为字符串比较
+  - 问题：ListenerManager接口方法名不匹配
+  - 解决方案：将StopAll方法调用更改为HaltAll以匹配实际接口
+- **下一步计划**：
+  - 实现HTTP API控制接口
+  - 完善异常上报功能

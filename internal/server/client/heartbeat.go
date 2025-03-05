@@ -188,3 +188,38 @@ func (m *HeartbeatMonitor) ProcessHeartbeat(clientID string) error {
 	
 	return nil
 }
+
+// GetCheckInterval returns the current check interval
+func (m *HeartbeatMonitor) GetCheckInterval() time.Duration {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.checkInterval
+}
+
+// GetTimeout returns the current timeout
+func (m *HeartbeatMonitor) GetTimeout() time.Duration {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.timeout
+}
+
+// IsRandomEnabled returns whether random intervals are enabled
+func (m *HeartbeatMonitor) IsRandomEnabled() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.useRandomIntervals
+}
+
+// GetRandomMinInterval returns the minimum random interval
+func (m *HeartbeatMonitor) GetRandomMinInterval() time.Duration {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.minRandomInterval
+}
+
+// GetRandomMaxInterval returns the maximum random interval
+func (m *HeartbeatMonitor) GetRandomMaxInterval() time.Duration {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.maxRandomInterval
+}

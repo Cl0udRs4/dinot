@@ -89,6 +89,18 @@
 - [x] 实现心跳检测功能，支持1s～24h随机延时与超时切换
 - [ ] 实现异常上报功能
 
+<<<<<<< Updated upstream
+||||||| constructed merge base
+#### 2.1.3 控制接口实现
+- [x] 实现Console模式（命令行交互）
+- [ ] 实现HTTP API（RESTful接口）
+
+=======
+#### 2.1.3 控制接口实现
+- [x] 实现Console模式（命令行交互）
+- [x] 实现HTTP API（RESTful接口）
+
+>>>>>>> Stashed changes
 ### 任务2.1.2：客户端管理模块实现
 - **完成时间**：2025-03-05
 - **主要内容**：
@@ -137,4 +149,337 @@
   - 解决方案：在检测超时时考虑客户端的个性化心跳间隔
 - **下一步计划**：
   - 实现异常上报功能
+<<<<<<< Updated upstream
   - 开发控制接口（Console模式）
+||||||| constructed merge base
+  - 开发控制接口（Console模式和HTTP API）
+
+### 任务2.1.3a：控制接口实现 - Console模式
+- **完成时间**：2025-03-05
+- **主要内容**：
+  1. 实现命令行交互式控制台界面
+  2. 支持客户端管理、状态更新和心跳配置等功能
+  3. 编写单元测试和编译测试，确保代码质量
+- **代码实现**：
+  - 控制台界面（Console）：
+    - 支持命令注册和执行
+    - 提供交互式命令行界面
+    - 集成客户端管理器和心跳监控器
+    - 支持命令历史和帮助信息
+  - 服务器集成（Server）：
+    - 整合监听器管理器、客户端管理器和心跳监控器
+    - 提供统一的启动和停止接口
+    - 支持信号处理和优雅关闭
+  - 命令实现：
+    - help：显示可用命令列表和使用说明
+    - list：列出所有客户端或按状态筛选
+    - info：显示客户端详细信息
+    - status：设置客户端状态
+    - heartbeat：配置心跳设置（检查间隔、超时时间、随机间隔）
+    - exit：退出控制台
+- **测试内容**：
+  - 控制台命令执行和参数解析
+  - 服务器创建和组件集成
+  - 控制台启动和停止
+  - 无效命令和参数处理
+  - 客户端列表和信息显示
+  - 状态更新和心跳配置
+- **实现特点**：
+  - 模块化设计，每个命令独立实现
+  - 使用bufio.Reader读取用户输入
+  - 支持命令参数解析和验证
+  - 提供友好的错误提示和帮助信息
+  - 支持按状态筛选客户端
+  - 支持详细的客户端信息显示
+  - 支持灵活的心跳配置
+- **调用示例**：
+  ```
+  > help
+  Available commands:
+    list       - List all clients or filter by status
+      Usage: list [status]
+    info       - Show detailed information about a client
+      Usage: info <client_id>
+    status     - Set a client's status
+      Usage: status <client_id> <online|offline|busy|error> [error_message]
+    heartbeat  - Configure heartbeat settings
+      Usage: heartbeat <check|timeout|random> [args...]
+    exit       - Exit the console
+      Usage: exit
+    help       - Display available commands
+      Usage: help
+  
+  > list
+  All clients:
+  ID                                   IP Address      Status     Last Seen      
+  --------------------------------------------------------------------------------
+  test-client-id                       192.168.1.100   online     0s ago
+  
+  Total: 1 clients
+  
+  > info test-client-id
+  Client Information:
+    ID:              test-client-id
+    Name:            Test Client
+    IP Address:      192.168.1.100
+    OS:              Linux
+    Architecture:    x86_64
+    Status:          online
+    Protocol:        tcp
+    Registered At:   2025-03-05T04:14:31Z
+    Last Seen:       2025-03-05T04:14:31Z (0s ago)
+    Heartbeat:       1m0s
+    Supported Modules:
+      - shell
+      - file
+      - process
+    Active Modules:
+      None
+  
+  > status test-client-id busy
+  Updated client test-client-id status to busy
+  
+  > heartbeat check 45
+  Set heartbeat check interval to 45s
+  
+  > heartbeat random enable 5 300
+  Enabled random heartbeat intervals (5s - 5m0s)
+  ```
+- **遇到的问题与解决方案**：
+  - 问题：控制台测试中的输入模拟实现复杂
+  - 解决方案：使用io.Pipe创建模拟输入流，简化测试代码
+  - 问题：客户端状态比较逻辑错误
+  - 解决方案：将客户端状态比较从枚举类型改为字符串比较
+  - 问题：ListenerManager接口方法名不匹配
+  - 解决方案：将StopAll方法调用更改为HaltAll以匹配实际接口
+- **下一步计划**：
+  - 实现HTTP API控制接口
+  - 完善异常上报功能
+=======
+  - 开发控制接口（Console模式和HTTP API）
+
+### 任务2.1.3a：控制接口实现 - Console模式
+- **完成时间**：2025-03-05
+- **主要内容**：
+  1. 实现命令行交互式控制台界面
+  2. 支持客户端管理、状态更新和心跳配置等功能
+  3. 编写单元测试和编译测试，确保代码质量
+- **代码实现**：
+  - 控制台界面（Console）：
+    - 支持命令注册和执行
+    - 提供交互式命令行界面
+    - 集成客户端管理器和心跳监控器
+    - 支持命令历史和帮助信息
+  - 服务器集成（Server）：
+    - 整合监听器管理器、客户端管理器和心跳监控器
+    - 提供统一的启动和停止接口
+    - 支持信号处理和优雅关闭
+  - 命令实现：
+    - help：显示可用命令列表和使用说明
+    - list：列出所有客户端或按状态筛选
+    - info：显示客户端详细信息
+    - status：设置客户端状态
+    - heartbeat：配置心跳设置（检查间隔、超时时间、随机间隔）
+    - exit：退出控制台
+- **测试内容**：
+  - 控制台命令执行和参数解析
+  - 服务器创建和组件集成
+  - 控制台启动和停止
+  - 无效命令和参数处理
+  - 客户端列表和信息显示
+  - 状态更新和心跳配置
+- **实现特点**：
+  - 模块化设计，每个命令独立实现
+  - 使用bufio.Reader读取用户输入
+  - 支持命令参数解析和验证
+  - 提供友好的错误提示和帮助信息
+  - 支持按状态筛选客户端
+  - 支持详细的客户端信息显示
+  - 支持灵活的心跳配置
+- **调用示例**：
+  ```
+  > help
+  Available commands:
+    list       - List all clients or filter by status
+      Usage: list [status]
+    info       - Show detailed information about a client
+      Usage: info <client_id>
+    status     - Set a client's status
+      Usage: status <client_id> <online|offline|busy|error> [error_message]
+    heartbeat  - Configure heartbeat settings
+      Usage: heartbeat <check|timeout|random> [args...]
+    exit       - Exit the console
+      Usage: exit
+    help       - Display available commands
+      Usage: help
+  
+  > list
+  All clients:
+  ID                                   IP Address      Status     Last Seen      
+  --------------------------------------------------------------------------------
+  test-client-id                       192.168.1.100   online     0s ago
+  
+  Total: 1 clients
+  
+  > info test-client-id
+  Client Information:
+    ID:              test-client-id
+    Name:            Test Client
+    IP Address:      192.168.1.100
+    OS:              Linux
+    Architecture:    x86_64
+    Status:          online
+    Protocol:        tcp
+    Registered At:   2025-03-05T04:14:31Z
+    Last Seen:       2025-03-05T04:14:31Z (0s ago)
+    Heartbeat:       1m0s
+    Supported Modules:
+      - shell
+      - file
+      - process
+    Active Modules:
+      None
+  
+  > status test-client-id busy
+  Updated client test-client-id status to busy
+  
+  > heartbeat check 45
+  Set heartbeat check interval to 45s
+  
+  > heartbeat random enable 5 300
+  Enabled random heartbeat intervals (5s - 5m0s)
+  ```
+- **遇到的问题与解决方案**：
+  - 问题：控制台测试中的输入模拟实现复杂
+  - 解决方案：使用io.Pipe创建模拟输入流，简化测试代码
+  - 问题：客户端状态比较逻辑错误
+  - 解决方案：将客户端状态比较从枚举类型改为字符串比较
+  - 问题：ListenerManager接口方法名不匹配
+  - 解决方案：将StopAll方法调用更改为HaltAll以匹配实际接口
+- **下一步计划**：
+  - 实现HTTP API控制接口
+  - 完善异常上报功能
+
+### 任务2.1.3b：控制接口实现 - HTTP API
+- **完成时间**：2025-03-05
+- **主要内容**：
+  1. 实现RESTful API接口，支持客户端管理、状态更新和心跳配置
+  2. 支持基本认证和JWT认证
+  3. 编写单元测试和编译测试，确保代码质量
+- **代码实现**：
+  - API处理器（APIHandler）：
+    - 集成客户端管理器和心跳监控器
+    - 支持配置认证方式（Basic Auth和JWT）
+    - 提供RESTful API端点
+    - 支持JSON格式的请求和响应
+  - 服务器集成：
+    - 在Server结构中添加API处理器
+    - 在单独的goroutine中启动API服务器
+    - 支持配置API监听地址和端口
+  - API端点实现：
+    - /api/clients：获取所有客户端或按状态筛选
+    - /api/clients/{id}：获取特定客户端的详细信息
+    - /api/status：更新客户端状态
+    - /api/heartbeat：获取和更新心跳配置
+  - 认证中间件：
+    - 支持禁用认证（开发环境）
+    - 支持Basic Auth认证
+    - 支持JWT认证（预留接口）
+- **测试内容**：
+  - API端点功能验证
+  - 认证中间件测试
+  - 客户端管理和心跳配置API测试
+  - 错误处理和边界条件测试
+- **实现特点**：
+  - RESTful设计风格
+  - JSON格式的请求和响应
+  - 模块化的API端点实现
+  - 灵活的认证配置
+  - 完整的错误处理
+  - 与现有客户端管理和心跳监控模块无缝集成
+- **调用示例**：
+  ```
+  # 获取所有客户端
+  GET /api/clients
+  Response:
+  [
+    {
+      "id": "test-client-id",
+      "name": "Test Client",
+      "ip_address": "192.168.1.100",
+      "os": "Linux",
+      "architecture": "x86_64",
+      "registered_at": "2025-03-05T04:44:55Z",
+      "last_seen": "2025-03-05T04:44:55Z",
+      "status": "online",
+      "supported_modules": ["shell", "file", "process"],
+      "active_modules": [],
+      "protocol": "tcp",
+      "heartbeat_interval": 60000000000
+    }
+  ]
+  
+  # 获取特定客户端
+  GET /api/clients/test-client-id
+  Response:
+  {
+    "id": "test-client-id",
+    "name": "Test Client",
+    "ip_address": "192.168.1.100",
+    "os": "Linux",
+    "architecture": "x86_64",
+    "registered_at": "2025-03-05T04:44:55Z",
+    "last_seen": "2025-03-05T04:44:55Z",
+    "status": "online",
+    "supported_modules": ["shell", "file", "process"],
+    "active_modules": [],
+    "protocol": "tcp",
+    "heartbeat_interval": 60000000000
+  }
+  
+  # 更新客户端状态
+  POST /api/status
+  Request:
+  {
+    "clientId": "test-client-id",
+    "status": "busy"
+  }
+  Response:
+  Client status updated
+  
+  # 获取心跳配置
+  GET /api/heartbeat
+  Response:
+  {
+    "checkInterval": 30,
+    "timeout": 60,
+    "randomEnabled": false,
+    "randomMinInterval": 0,
+    "randomMaxInterval": 0
+  }
+  
+  # 更新心跳配置
+  POST /api/heartbeat
+  Request:
+  {
+    "checkInterval": 45,
+    "timeout": 90,
+    "randomEnabled": true,
+    "randomMinInterval": 5,
+    "randomMaxInterval": 300
+  }
+  Response:
+  Heartbeat settings updated
+  ```
+- **遇到的问题与解决方案**：
+  - 问题：API测试中的客户端状态比较错误
+  - 解决方案：修正测试代码，确保正确访问客户端状态常量
+  - 问题：DNS连接包装器重复定义导致编译错误
+  - 解决方案：删除重复的DNS连接包装器实现文件
+  - 问题：控制台输入流EOF错误处理不当
+  - 解决方案：添加对io.EOF的专门处理，优雅退出控制台
+- **下一步计划**：
+  - 完善异常上报功能
+  - 实现客户端模块管理API
+  - 增强API安全性和JWT认证实现
+>>>>>>> Stashed changes

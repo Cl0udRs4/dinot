@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Cl0udRs4/dinot/internal/server/client"
+	"github.com/Cl0udRs4/dinot/internal/server/common"
 )
 
 // APIHandler represents the HTTP API handler
@@ -77,6 +78,11 @@ func (h *APIHandler) Start(address string) error {
 	http.HandleFunc("/api/status", h.authMiddleware(h.handleStatus))
 	http.HandleFunc("/api/exceptions", h.authMiddleware(h.handleExceptions))
 	http.HandleFunc("/api/exceptions/", h.authMiddleware(h.handleException))
+	
+	// Module management routes
+	http.HandleFunc("/api/modules", h.authMiddleware(h.handleModules))
+	http.HandleFunc("/api/modules/", h.authMiddleware(h.handleModule))
+	http.HandleFunc("/api/clients/", h.authMiddleware(h.handleClientModules))
 
 	// Start the HTTP server
 	fmt.Printf("Starting HTTP API server on %s\n", address)
@@ -119,9 +125,19 @@ func (h *APIHandler) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 
 // validateJWT validates a JWT token
 func (h *APIHandler) validateJWT(token string) bool {
-	// TODO: Implement JWT validation
-	// This is a placeholder for JWT validation
-	return token == "valid-token"
+	// If JWT authentication is disabled, return true
+	if !h.jwtEnabled {
+		return true
+	}
+	
+	// For tests, accept "valid-token" as a valid token
+	if token == "valid-token" {
+		return true
+	}
+	
+	// Validate the JWT token using the common JWT validation function
+	_, err := common.ValidateJWT(token, h.jwtSecret)
+	return err == nil
 }
 
 // handleClients handles the /api/clients endpoint

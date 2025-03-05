@@ -2,6 +2,7 @@ package client
 
 import (
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 )
@@ -19,6 +20,9 @@ type ClientManager struct {
 	// clients maps client IDs to Client objects
 	clients map[string]*Client
 	
+	// exceptionManager manages exception reports
+	exceptionManager *ExceptionManager
+	
 	// mu protects concurrent access to the clients map
 	mu sync.RWMutex
 }
@@ -26,7 +30,8 @@ type ClientManager struct {
 // NewClientManager creates a new client manager
 func NewClientManager() *ClientManager {
 	return &ClientManager{
-		clients: make(map[string]*Client),
+		clients:          make(map[string]*Client),
+		exceptionManager: NewExceptionManager(),
 	}
 }
 
@@ -169,4 +174,52 @@ func (m *ClientManager) CountByStatus(status ClientStatus) int {
 	}
 	
 	return count
+}
+
+// ReportException reports an exception for a client
+func (m *ClientManager) ReportException(clientID, message string, severity ExceptionSeverity, module, stackTrace string, additionalInfo map[string]string) (*ExceptionReport, error) {
+	// Check if the client exists
+	client, err := m.GetClient(clientID)
+	if err != nil {
+		return nil, err
+	}
+	
+	// Create a new exception report
+	report := &ExceptionReport{
+		ID:             fmt.Sprintf("%s-%d", clientID, time.Now().UnixNano()),
+		ClientID:       clientID,
+		Timestamp:      time.Now(),
+		Message:        message,
+		Severity:       severity,
+		Module:         module,
+		StackTrace:     stackTrace,
+		AdditionalInfo: additionalInfo,
+	}
+	
+	// Add the report to the exception manager
+	m.exceptionManager.AddReport(report)
+	
+	// Update the client's status if the severity is high enough
+	if severity == SeverityError || severity == SeverityCritical {
+		client.UpdateStatus(StatusError, message)
+	}
+	
+	return report, nil
+}
+
+// GetExceptionReports retrieves all exception reports for a client
+func (m *ClientManager) GetExceptionReports(clientID string) ([]*ExceptionReport, error) {
+	// Check if the client exists
+	_, err := m.GetClient(clientID)
+	if err != nil {
+		return nil, err
+	}
+	
+	// Get the client's exception reports
+	return m.exceptionManager.GetClientReports(clientID), nil
+}
+
+// GetAllExceptionReports retrieves all exception reports
+func (m *ClientManager) GetAllExceptionReports() []*ExceptionReport {
+	return m.exceptionManager.GetAllReports()
 }

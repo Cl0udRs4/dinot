@@ -75,6 +75,8 @@ func (h *APIHandler) Start(address string) error {
 	http.HandleFunc("/api/clients/", h.authMiddleware(h.handleClient))
 	http.HandleFunc("/api/heartbeat", h.authMiddleware(h.handleHeartbeat))
 	http.HandleFunc("/api/status", h.authMiddleware(h.handleStatus))
+	http.HandleFunc("/api/exceptions", h.authMiddleware(h.handleExceptions))
+	http.HandleFunc("/api/exceptions/", h.authMiddleware(h.handleException))
 
 	// Start the HTTP server
 	fmt.Printf("Starting HTTP API server on %s\n", address)
@@ -264,6 +266,122 @@ func (h *APIHandler) handleStatus(w http.ResponseWriter, r *http.Request) {
 		// Return success
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprintf(w, "Client status updated")
+
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+// handleExceptions handles the /api/exceptions endpoint
+func (h *APIHandler) handleExceptions(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		// Get all exceptions or filter by client ID
+		clientID := r.URL.Query().Get("clientId")
+		var exceptions []*client.ExceptionReport
+		if clientID != "" {
+			var err error
+			exceptions, err = h.clientManager.GetExceptionReports(clientID)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusNotFound)
+				return
+			}
+		} else {
+			exceptions = h.clientManager.GetAllExceptionReports()
+		}
+
+		// Return the exceptions as JSON
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(exceptions)
+
+	case http.MethodPost:
+		// Report a new exception
+		var data struct {
+			ClientID       string            `json:"clientId"`
+			Message        string            `json:"message"`
+			Severity       string            `json:"severity"`
+			Module         string            `json:"module,omitempty"`
+			StackTrace     string            `json:"stackTrace,omitempty"`
+			AdditionalInfo map[string]string `json:"additionalInfo,omitempty"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&data); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		// Validate the severity
+		var severity client.ExceptionSeverity
+		switch data.Severity {
+		case "info":
+			severity = client.SeverityInfo
+		case "warning":
+			severity = client.SeverityWarning
+		case "error":
+			severity = client.SeverityError
+		case "critical":
+			severity = client.SeverityCritical
+		default:
+			http.Error(w, "Invalid severity", http.StatusBadRequest)
+			return
+		}
+
+		// Report the exception
+		report, err := h.clientManager.ReportException(
+			data.ClientID,
+			data.Message,
+			severity,
+			data.Module,
+			data.StackTrace,
+			data.AdditionalInfo,
+		)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+
+		// Return the report as JSON
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(report)
+
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+// handleException handles the /api/exceptions/{id} endpoint
+func (h *APIHandler) handleException(w http.ResponseWriter, r *http.Request) {
+	// Extract the exception ID from the URL
+	parts := strings.Split(r.URL.Path, "/")
+	if len(parts) < 3 {
+		http.Error(w, "Invalid exception ID", http.StatusBadRequest)
+		return
+	}
+	exceptionID := parts[len(parts)-1]
+
+	switch r.Method {
+	case http.MethodGet:
+	// Get all exceptions
+		allExceptions := h.clientManager.GetAllExceptionReports()
+		var report *client.ExceptionReport
+		exists := false
+		
+		// Find the exception with the matching ID
+		for _, exc := range allExceptions {
+			if exc.ID == exceptionID {
+				report = exc
+				exists = true
+				break
+			}
+		}
+		
+		if !exists {
+			http.Error(w, "Exception not found", http.StatusNotFound)
+			return
+		}
+
+		// Return the exception as JSON
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(report)
 
 	default:
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)

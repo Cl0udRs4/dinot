@@ -154,7 +154,7 @@ func TestUpdateClientStatus(t *testing.T) {
 		t.Fatal(err)
 	}
 	
-	if client.Status != client.StatusBusy {
+	if client.Status != "busy" {
 		t.Errorf("expected client status busy, got %s", client.Status)
 	}
 }
@@ -306,5 +306,243 @@ func TestAuthMiddleware(t *testing.T) {
 	
 	if status := rr.Code; status != http.StatusOK {
 		t.Errorf("handler returned wrong status code: got %v want %v", status, http.StatusOK)
+	}
+}
+
+// TestGetExceptions tests the GET /api/exceptions endpoint
+func TestGetExceptions(t *testing.T) {
+	apiHandler, clientManager, _ := setupTestAPI()
+	
+	// Create and register a test client
+	client := client.NewClient(
+		"test-client-id-2",
+		"Test Client 2",
+		"192.168.1.101",
+		"Windows",
+		"x86_64",
+		[]string{"shell", "file"},
+		"tcp",
+	)
+	err := clientManager.RegisterClient(client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	
+	// Report some exceptions
+	_, err = clientManager.ReportException(
+		"test-client-id",
+		"Test exception 1",
+		"error",
+		"test-module",
+		"",
+		nil,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	
+	_, err = clientManager.ReportException(
+		"test-client-id-2",
+		"Test exception 2",
+		"warning",
+		"test-module-2",
+		"",
+		nil,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	
+	// Create a request to get all exceptions
+	req, err := http.NewRequest("GET", "/api/exceptions", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	
+	// Create a response recorder
+	rr := httptest.NewRecorder()
+	
+	// Call the handler
+	handler := http.HandlerFunc(apiHandler.handleExceptions)
+	handler.ServeHTTP(rr, req)
+	
+	// Check the status code
+	if status := rr.Code; status != http.StatusOK {
+		t.Errorf("handler returned wrong status code: got %v want %v", status, http.StatusOK)
+	}
+	
+	// Check the response body
+	var exceptions []map[string]interface{}
+	err = json.Unmarshal(rr.Body.Bytes(), &exceptions)
+	if err != nil {
+		t.Fatal(err)
+	}
+	
+	if len(exceptions) != 2 {
+		t.Errorf("expected 2 exceptions, got %d", len(exceptions))
+	}
+	
+	// Create a request to get exceptions for a specific client
+	req, err = http.NewRequest("GET", "/api/exceptions?clientId=test-client-id", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	
+	// Create a response recorder
+	rr = httptest.NewRecorder()
+	
+	// Call the handler
+	handler.ServeHTTP(rr, req)
+	
+	// Check the status code
+	if status := rr.Code; status != http.StatusOK {
+		t.Errorf("handler returned wrong status code: got %v want %v", status, http.StatusOK)
+	}
+	
+	// Check the response body
+	err = json.Unmarshal(rr.Body.Bytes(), &exceptions)
+	if err != nil {
+		t.Fatal(err)
+	}
+	
+	if len(exceptions) != 1 {
+		t.Errorf("expected 1 exception, got %d", len(exceptions))
+	}
+	
+	if exceptions[0]["message"] != "Test exception 1" {
+		t.Errorf("expected message 'Test exception 1', got %s", exceptions[0]["message"])
+	}
+}
+
+// TestReportException tests the POST /api/exceptions endpoint
+func TestReportException(t *testing.T) {
+	apiHandler, _, _ := setupTestAPI()
+	
+	// Create a request to report an exception
+	data := map[string]interface{}{
+		"clientId":  "test-client-id",
+		"message":   "Test exception from API",
+		"severity":  "error",
+		"module":    "test-module-api",
+		"stackTrace": "test stack trace",
+	}
+	jsonData, err := json.Marshal(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	
+	req, err := http.NewRequest("POST", "/api/exceptions", bytes.NewBuffer(jsonData))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	
+	// Create a response recorder
+	rr := httptest.NewRecorder()
+	
+	// Call the handler
+	handler := http.HandlerFunc(apiHandler.handleExceptions)
+	handler.ServeHTTP(rr, req)
+	
+	// Check the status code
+	if status := rr.Code; status != http.StatusOK {
+		t.Errorf("handler returned wrong status code: got %v want %v", status, http.StatusOK)
+	}
+	
+	// Check the response body
+	var report map[string]interface{}
+	err = json.Unmarshal(rr.Body.Bytes(), &report)
+	if err != nil {
+		t.Fatal(err)
+	}
+	
+	if report["client_id"] != "test-client-id" {
+		t.Errorf("expected client ID test-client-id, got %s", report["client_id"])
+	}
+	
+	if report["message"] != "Test exception from API" {
+		t.Errorf("expected message 'Test exception from API', got %s", report["message"])
+	}
+	
+	if report["severity"] != "error" {
+		t.Errorf("expected severity error, got %s", report["severity"])
+	}
+	
+	if report["module"] != "test-module-api" {
+		t.Errorf("expected module test-module-api, got %s", report["module"])
+	}
+	
+	// Verify the client's status was updated
+	client, err := apiHandler.clientManager.GetClient("test-client-id")
+	if err != nil {
+		t.Fatal(err)
+	}
+	
+	if client.Status != "error" {
+		t.Errorf("expected client status error, got %s", client.Status)
+	}
+}
+
+// TestGetExceptionByID tests the GET /api/exceptions/{id} endpoint
+func TestGetExceptionByID(t *testing.T) {
+	apiHandler, clientManager, _ := setupTestAPI()
+	
+	// Report an exception
+	report, err := clientManager.ReportException(
+		"test-client-id",
+		"Test exception for ID lookup",
+		"warning",
+		"test-module-id",
+		"",
+		nil,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	
+	// Create a request to get the exception by ID
+	req, err := http.NewRequest("GET", "/api/exceptions/"+report.ID, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	
+	// Create a response recorder
+	rr := httptest.NewRecorder()
+	
+	// Call the handler
+	handler := http.HandlerFunc(apiHandler.handleException)
+	handler.ServeHTTP(rr, req)
+	
+	// Check the status code
+	if status := rr.Code; status != http.StatusOK {
+		t.Errorf("handler returned wrong status code: got %v want %v", status, http.StatusOK)
+	}
+	
+	// Check the response body
+	var retrievedReport map[string]interface{}
+	err = json.Unmarshal(rr.Body.Bytes(), &retrievedReport)
+	if err != nil {
+		t.Fatal(err)
+	}
+	
+	if retrievedReport["id"] != report.ID {
+		t.Errorf("expected report ID %s, got %s", report.ID, retrievedReport["id"])
+	}
+	
+	if retrievedReport["message"] != "Test exception for ID lookup" {
+		t.Errorf("expected message 'Test exception for ID lookup', got %s", retrievedReport["message"])
+	}
+	
+	// Test with non-existent ID
+	req, err = http.NewRequest("GET", "/api/exceptions/non-existent-id", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	
+	rr = httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+	
+	if status := rr.Code; status != http.StatusNotFound {
+		t.Errorf("handler returned wrong status code: got %v want %v", status, http.StatusNotFound)
 	}
 }

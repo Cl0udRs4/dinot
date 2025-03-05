@@ -101,6 +101,14 @@ func (c *Console) registerCommands() {
 		Execute:     c.cmdHeartbeat,
 	}
 	
+	// Exception management command
+	c.commands["exception"] = &Command{
+		Name:        "exception",
+		Description: "Manage exception reports",
+		Usage:       "exception <list|report> [args...]",
+		Execute:     c.cmdException,
+	}
+	
 	// Exit command
 	c.commands["exit"] = &Command{
 		Name:        "exit",
@@ -381,6 +389,120 @@ func (c *Console) cmdHeartbeat(args []string) error {
 		return fmt.Errorf("unknown heartbeat subcommand: %s", subcommand)
 	}
 	
+	return nil
+}
+
+// cmdException implements the exception command
+func (c *Console) cmdException(args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("usage: exception <list|report> [args...]")
+	}
+
+	switch args[0] {
+	case "list":
+		// List exceptions
+		if len(args) < 2 {
+			// List all exceptions
+			exceptions := c.clientManager.GetAllExceptionReports()
+			if len(exceptions) == 0 {
+				fmt.Println("No exceptions reported")
+				return nil
+			}
+
+			fmt.Println("All exceptions:")
+			fmt.Println("ID                                   Client ID                 Severity   Timestamp           Message")
+			fmt.Println("--------------------------------------------------------------------------------")
+			for _, exception := range exceptions {
+				fmt.Printf("%-36s %-24s %-10s %-20s %s\n",
+					exception.ID,
+					exception.ClientID,
+					exception.Severity,
+					exception.Timestamp.Format("2006-01-02 15:04:05"),
+					exception.Message,
+				)
+			}
+			fmt.Printf("\nTotal: %d exceptions\n", len(exceptions))
+		} else {
+			// List exceptions for a specific client
+			clientID := args[1]
+			exceptions, err := c.clientManager.GetExceptionReports(clientID)
+			if err != nil {
+				return err
+			}
+
+			if len(exceptions) == 0 {
+				fmt.Printf("No exceptions reported for client %s\n", clientID)
+				return nil
+			}
+
+			fmt.Printf("Exceptions for client %s:\n", clientID)
+			fmt.Println("ID                                   Severity   Timestamp           Message")
+			fmt.Println("--------------------------------------------------------------------------------")
+			for _, exception := range exceptions {
+				fmt.Printf("%-36s %-10s %-20s %s\n",
+					exception.ID,
+					exception.Severity,
+					exception.Timestamp.Format("2006-01-02 15:04:05"),
+					exception.Message,
+				)
+			}
+			fmt.Printf("\nTotal: %d exceptions\n", len(exceptions))
+		}
+
+	case "report":
+		// Report a new exception
+		if len(args) < 4 {
+			return fmt.Errorf("usage: exception report <client_id> <info|warning|error|critical> <message> [module] [stack_trace]")
+		}
+
+		clientID := args[1]
+		severityStr := args[2]
+		message := args[3]
+
+		// Validate the severity
+		var severity client.ExceptionSeverity
+		switch severityStr {
+		case "info":
+			severity = client.SeverityInfo
+		case "warning":
+			severity = client.SeverityWarning
+		case "error":
+			severity = client.SeverityError
+		case "critical":
+			severity = client.SeverityCritical
+		default:
+			return fmt.Errorf("invalid severity. Must be one of: info, warning, error, critical")
+		}
+
+		// Get optional arguments
+		module := ""
+		stackTrace := ""
+		if len(args) > 4 {
+			module = args[4]
+		}
+		if len(args) > 5 {
+			stackTrace = args[5]
+		}
+
+		// Report the exception
+		report, err := c.clientManager.ReportException(
+			clientID,
+			message,
+			severity,
+			module,
+			stackTrace,
+			nil, // No additional info from console
+		)
+		if err != nil {
+			return err
+		}
+
+		fmt.Printf("Exception reported with ID: %s\n", report.ID)
+
+	default:
+		return fmt.Errorf("unknown subcommand. Available subcommands: list, report")
+	}
+
 	return nil
 }
 

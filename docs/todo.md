@@ -87,20 +87,11 @@
 - [x] 实现客户端注册功能，记录客户端信息和支持模块
 - [x] 实现客户端状态更新功能，支持在线、离线、忙碌和错误状态
 - [x] 实现心跳检测功能，支持1s～24h随机延时与超时切换
-- [ ] 实现异常上报功能
+- [x] 实现异常上报功能
 
-<<<<<<< Updated upstream
-||||||| constructed merge base
-#### 2.1.3 控制接口实现
-- [x] 实现Console模式（命令行交互）
-- [ ] 实现HTTP API（RESTful接口）
-
-=======
 #### 2.1.3 控制接口实现
 - [x] 实现Console模式（命令行交互）
 - [x] 实现HTTP API（RESTful接口）
-
->>>>>>> Stashed changes
 ### 任务2.1.2：客户端管理模块实现
 - **完成时间**：2025-03-05
 - **主要内容**：
@@ -148,11 +139,117 @@
   - 问题：心跳超时检测需要考虑不同客户端的心跳间隔
   - 解决方案：在检测超时时考虑客户端的个性化心跳间隔
 - **下一步计划**：
-  - 实现异常上报功能
-<<<<<<< Updated upstream
-  - 开发控制接口（Console模式）
-||||||| constructed merge base
   - 开发控制接口（Console模式和HTTP API）
+
+### 任务2.1.2c：异常上报功能实现
+- **完成时间**：2025-03-06
+- **主要内容**：
+  1. 实现异常上报功能，支持详细的异常信息记录和查询
+  2. 提供API接口和控制台命令用于异常上报和查询
+  3. 编写单元测试和编译测试，确保代码质量
+- **代码实现**：
+  - 异常报告模型（ExceptionReport）：
+    - 包含ID、客户端ID、时间戳、消息、严重性级别等基本信息
+    - 支持可选的模块名称、堆栈跟踪和附加信息
+    - 使用JSON序列化支持API交互
+  - 异常管理器（ExceptionManager）：
+    - 提供异常报告的添加、查询和管理功能
+    - 支持按ID和客户端ID查询异常报告
+    - 使用并发安全的数据结构确保线程安全
+  - 客户端管理器集成：
+    - 扩展ClientManager以支持异常上报和查询
+    - 实现ReportException方法用于创建新的异常报告
+    - 实现GetExceptionReports和GetAllExceptionReports方法用于查询异常
+    - 根据异常严重性自动更新客户端状态
+  - 控制台集成：
+    - 添加exception命令，支持list和report子命令
+    - 支持按客户端ID筛选异常报告
+    - 支持设置异常严重性级别（info、warning、error、critical）
+  - API集成：
+    - 添加/api/exceptions端点用于获取和报告异常
+    - 添加/api/exceptions/{id}端点用于获取特定异常详情
+    - 支持按客户端ID筛选异常报告
+- **测试内容**：
+  - 异常管理器功能测试：
+    - 异常报告的添加和查询
+    - 按ID和客户端ID查询异常报告
+    - 空结果处理
+  - 客户端管理器异常功能测试：
+    - 异常上报和客户端状态更新
+    - 异常查询和筛选
+    - 错误处理（如客户端不存在）
+  - API端点测试：
+    - 获取所有异常报告
+    - 按客户端ID筛选异常报告
+    - 创建新的异常报告
+    - 获取特定异常详情
+    - 错误处理（如异常不存在）
+- **实现特点**：
+  - 异常严重性分级：info、warning、error、critical
+  - 高严重性异常（error、critical）自动更新客户端状态
+  - 支持详细的异常信息记录，包括模块、堆栈跟踪和附加信息
+  - 提供完整的控制台命令和API接口用于异常管理
+  - 使用互斥锁（sync.RWMutex）确保并发安全
+  - 支持按ID和客户端ID高效查询异常报告
+- **调用示例**：
+  ```
+  # 控制台命令
+  > exception list
+  All exceptions:
+  ID                                   Client ID                 Severity   Timestamp           Message
+  --------------------------------------------------------------------------------
+  test-client-id-1709654695000000000   test-client-id           error      2025-03-06 05:44:55 Test exception message
+  
+  Total: 1 exceptions
+  
+  > exception report test-client-id critical "Critical system error" system-module "Stack trace..."
+  Exception reported with ID: test-client-id-1709654700000000000
+  
+  # API调用
+  GET /api/exceptions
+  Response:
+  [
+    {
+      "id": "test-client-id-1709654695000000000",
+      "client_id": "test-client-id",
+      "timestamp": "2025-03-06T05:44:55Z",
+      "message": "Test exception message",
+      "severity": "error",
+      "module": "test-module",
+      "stack_trace": "...",
+      "additional_info": {"key": "value"}
+    }
+  ]
+  
+  POST /api/exceptions
+  Request:
+  {
+    "clientId": "test-client-id",
+    "message": "Test exception from API",
+    "severity": "error",
+    "module": "test-module-api"
+  }
+  Response:
+  {
+    "id": "test-client-id-1709654710000000000",
+    "client_id": "test-client-id",
+    "timestamp": "2025-03-06T05:45:10Z",
+    "message": "Test exception from API",
+    "severity": "error",
+    "module": "test-module-api"
+  }
+  ```
+- **遇到的问题与解决方案**：
+  - 问题：API测试中的ExceptionReport类型引用错误
+  - 解决方案：使用map[string]interface{}替代直接引用ExceptionReport结构体
+  - 问题：API处理器直接访问exceptionManager导致编译错误
+  - 解决方案：通过ClientManager提供的方法间接访问异常报告
+  - 问题：控制台输入流EOF错误处理不当
+  - 解决方案：添加对io.EOF的专门处理，优雅退出控制台
+- **下一步计划**：
+  - 实现客户端模块管理API
+  - 增强API安全性和JWT认证实现
+  - 开发客户端模板和Builder工具
 
 ### 任务2.1.3a：控制接口实现 - Console模式
 - **完成时间**：2025-03-05

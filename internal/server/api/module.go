@@ -7,6 +7,7 @@ import (
 	"strings"
 	
 	"github.com/Cl0udRs4/dinot/internal/server/client"
+	"github.com/google/uuid"
 )
 
 // ModuleInfo represents information about a module
@@ -143,43 +144,100 @@ func (h *APIHandler) handleClientModule(w http.ResponseWriter, r *http.Request, 
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"client_id": client.ID,
 			"module":    moduleName,
-			"status":    "loaded", // Placeholder
+			"active":    client.IsModuleActive(moduleName),
 		})
 		
 	case http.MethodPost:
 		// Execute module
 		var params map[string]interface{}
 		if err := json.NewDecoder(r.Body).Decode(&params); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			http.Error(w, "Invalid request body", http.StatusBadRequest)
 			return
 		}
 		
-		// In a real implementation, this would execute the module on the client
-		// For now, we'll return a placeholder response
+		// Send command to client to execute module
+		command := map[string]interface{}{
+			"type":       "execute_module",
+			"module":     moduleName,
+			"command_id": uuid.New().String(),
+			"params":     params,
+		}
+		
+		// Send command to client (implementation depends on your communication system)
+		err := h.sendCommandToClient(client.ID, command)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to send command: %v", err), http.StatusInternalServerError)
+			return
+		}
+		
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"client_id": client.ID,
-			"module":    moduleName,
-			"status":    "executed",
-			"result":    fmt.Sprintf("Module %s executed with params %v", moduleName, params),
+			"client_id":  client.ID,
+			"module":     moduleName,
+			"command_id": command["command_id"],
+			"status":     "command_sent",
 		})
 		
 	case http.MethodPut:
 		// Load module
+		// Get module binary from module repository
+		moduleBytes, err := h.getModuleBinary(moduleName)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to get module binary: %v", err), http.StatusInternalServerError)
+			return
+		}
+		
+		// Verify module signature
+		err = h.securityManager.VerifyModuleSignature(moduleName, moduleBytes, nil) // Signature should be retrieved separately
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Module signature verification failed: %v", err), http.StatusForbidden)
+			return
+		}
+		
+		// Send command to client to load module
+		command := map[string]interface{}{
+			"type":         "load_module",
+			"module":       moduleName,
+			"command_id":   uuid.New().String(),
+			"module_bytes": moduleBytes,
+		}
+		
+		// Send command to client
+		err = h.sendCommandToClient(client.ID, command)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to send command: %v", err), http.StatusInternalServerError)
+			return
+		}
+		
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"client_id": client.ID,
-			"module":    moduleName,
-			"status":    "loaded",
+			"client_id":  client.ID,
+			"module":     moduleName,
+			"command_id": command["command_id"],
+			"status":     "load_command_sent",
 		})
 		
 	case http.MethodDelete:
 		// Unload module
+		command := map[string]interface{}{
+			"type":       "unload_module",
+			"module":     moduleName,
+			"command_id": uuid.New().String(),
+		}
+		
+		// Send command to client
+		err := h.sendCommandToClient(client.ID, command)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to send command: %v", err), http.StatusInternalServerError)
+			return
+		}
+		
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"client_id": client.ID,
-			"module":    moduleName,
-			"status":    "unloaded",
+			"client_id":  client.ID,
+			"module":     moduleName,
+			"command_id": command["command_id"],
+			"status":     "unload_command_sent",
 		})
 		
 	default:

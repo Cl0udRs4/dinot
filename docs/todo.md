@@ -579,4 +579,96 @@
   - 完善异常上报功能
   - 实现客户端模块管理API
   - 增强API安全性和JWT认证实现
->>>>>>> Stashed changes
+
+#### 2.1.4 日志与监控模块实现
+- [x] 实现分级日志系统（调试、信息、告警、错误）
+- [x] 实现异常检测与自动重连机制
+
+### 任务2.1.4：日志与监控模块实现
+- **完成时间**：2025-03-06
+- **主要内容**：
+  1. 实现分级日志系统（调试、信息、告警、错误、致命）
+  2. 实现异常检测与自动重连机制
+  3. 编写单元测试和编译测试，确保代码质量
+- **代码实现**：
+  - 日志系统（Logger）：
+    - 基于logrus实现的日志接口
+    - 支持不同级别的日志记录（调试、信息、告警、错误、致命）
+    - 提供全局日志实例和线程安全的日志记录方法
+    - 支持字段注入和格式化输出
+    - 支持动态调整日志级别和输出目标
+  - 监控管理器（MonitorManager）：
+    - 定期检查客户端异常状态
+    - 实现自动重连机制，支持配置重连间隔和最大尝试次数
+    - 提供详细的异常日志记录
+    - 使用context控制监控器生命周期
+  - 服务器集成：
+    - 在Server结构中添加日志和监控组件
+    - 在启动和停止过程中记录详细日志
+    - 为所有关键操作添加日志记录
+    - 提供GetLogger和GetMonitorManager方法
+- **测试内容**：
+  - 日志系统功能验证：
+    - 不同日志级别的记录和过滤
+    - 字段注入和格式化输出
+    - 日志级别动态调整
+    - 线程安全性测试
+  - 监控管理器测试：
+    - 异常检测和客户端状态监控
+    - 自动重连尝试和成功恢复
+    - 配置参数验证
+    - 生命周期管理（启动和停止）
+- **实现特点**：
+  - 基于logrus实现的高性能日志系统
+  - 支持字段注入和结构化日志
+  - 线程安全的日志记录和监控操作
+  - 可配置的监控参数（检查间隔、重连间隔、最大尝试次数）
+  - 与现有客户端管理和异常报告系统无缝集成
+  - 使用context控制组件生命周期，确保优雅关闭
+  - 提供详细的操作日志，便于问题诊断和系统监控
+- **调用示例**：
+  ```go
+  // 初始化日志
+  logger := logging.GetLogger()
+  logger.SetLevel(logging.InfoLevel)
+  
+  // 记录不同级别的日志
+  logger.Debug("调试信息", nil)
+  logger.Info("操作信息", map[string]interface{}{
+    "operation": "start_server",
+    "time": time.Now().Format(time.RFC3339),
+  })
+  logger.Warn("警告信息", map[string]interface{}{
+    "warning_type": "connection_delay",
+    "delay_ms": 500,
+  })
+  logger.Error("错误信息", map[string]interface{}{
+    "error_code": "ERR001",
+    "client_id": "test-client-id",
+  })
+  
+  // 创建监控管理器
+  monitorConfig := logging.MonitorConfig{
+    CheckInterval:        1 * time.Minute,
+    ReconnectInterval:    10 * time.Second,
+    MaxReconnectAttempts: 5,
+  }
+  monitor := logging.NewMonitorManager(logger, clientManager, monitorConfig)
+  
+  // 启动和停止监控
+  monitor.Start()
+  // ... 系统运行 ...
+  monitor.Stop()
+  ```
+- **遇到的问题与解决方案**：
+  - 问题：WithField和WithFields方法实现中的并发安全问题
+  - 解决方案：重构实现，使用读写锁保护日志操作，并确保正确复制logger实例
+  - 问题：监控器中的重连逻辑可能导致goroutine泄漏
+  - 解决方案：使用context控制重连尝试的生命周期，确保在监控器停止时取消所有重连尝试
+  - 问题：日志输出格式不一致
+  - 解决方案：统一使用TextFormatter并配置一致的时间戳格式
+- **下一步计划**：
+  - 增强日志系统，支持文件输出和日志轮转
+  - 实现更复杂的异常检测算法，支持模式识别
+  - 添加系统资源监控功能（CPU、内存、网络）
+  - 实现日志聚合和分析功能

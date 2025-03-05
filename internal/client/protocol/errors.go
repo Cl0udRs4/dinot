@@ -17,4 +17,7 @@ var (
     
     // ErrNoProtocolAvailable is returned when no protocol is available
     ErrNoProtocolAvailable = errors.New("no protocol available")
+    
+    // ErrSendFailed is returned when sending data fails
+    ErrSendFailed = errors.New("failed to send data")
 )

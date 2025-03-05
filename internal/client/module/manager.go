@@ -4,6 +4,10 @@ import (
     "context"
     "encoding/json"
     "errors"
+    "fmt"
+    "io/ioutil"
+    "os"
+    "plugin"
     "sync"
 )
 
@@ -103,4 +107,79 @@ func (m *ModuleManager) GetModule(name string) (Module, error) {
     }
     
     return module, nil
+}
+
+// LoadModuleFromBytes loads a module from a byte array
+func (m *ModuleManager) LoadModuleFromBytes(name string, moduleBytes []byte) error {
+    m.mu.Lock()
+    defer m.mu.Unlock()
+    
+    if _, exists := m.modules[name]; exists {
+        return ErrModuleAlreadyLoaded
+    }
+    
+    // In a real implementation, this would use Go plugins or another mechanism
+    // to dynamically load code. For this implementation, we'll simulate it.
+    
+    // Create a temporary file
+    tmpFile, err := ioutil.TempFile("", "module-*.so")
+    if err != nil {
+        return fmt.Errorf("failed to create temporary file: %w", err)
+    }
+    defer os.Remove(tmpFile.Name())
+    
+    // Write the module bytes to the file
+    _, err = tmpFile.Write(moduleBytes)
+    if err != nil {
+        return fmt.Errorf("failed to write module bytes: %w", err)
+    }
+    
+    // Close the file
+    err = tmpFile.Close()
+    if err != nil {
+        return fmt.Errorf("failed to close temporary file: %w", err)
+    }
+    
+    // Load the module using the plugin package
+    // Note: This is a simplified implementation
+    // In a real-world scenario, you would need to handle platform-specific details
+    plugin, err := plugin.Open(tmpFile.Name())
+    if err != nil {
+        return fmt.Errorf("failed to load module: %w", err)
+    }
+    
+    // Look up the "NewModule" symbol
+    newModuleSym, err := plugin.Lookup("NewModule")
+    if err != nil {
+        return fmt.Errorf("module does not export 'NewModule': %w", err)
+    }
+    
+    // Assert that the symbol is a function
+    newModule, ok := newModuleSym.(func() Module)
+    if !ok {
+        return fmt.Errorf("module's 'NewModule' is not a function")
+    }
+    
+    // Create a new module instance
+    module := newModule()
+    
+    // Initialize the module
+    err = module.Init()
+    if err != nil {
+        return fmt.Errorf("failed to initialize module: %w", err)
+    }
+    
+    // Store the module
+    m.modules[name] = module
+    
+    return nil
+}
+
+// IsModuleLoaded checks if a module is loaded
+func (m *ModuleManager) IsModuleLoaded(name string) bool {
+    m.mu.RLock()
+    defer m.mu.RUnlock()
+    
+    _, exists := m.modules[name]
+    return exists
 }

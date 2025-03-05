@@ -944,3 +944,140 @@
   - 确保特殊协议（如DNS）支持心跳
   - 实现模块化设计，支持动态加载、调用和卸载
   - 实现通信反馈机制
+
+### 任务2.2.3：心跳与模块化设计
+- **完成时间**：2025-03-05
+- **主要内容**：
+  1. 实现客户端心跳模块（含随机延时、超时切换）
+  2. 实现模块化设计，支持动态加载、调用和卸载模块
+  3. 编写单元测试验证心跳机制和模块系统功能
+- **代码实现**：
+  - 客户端心跳模块：
+    - 扩展Client结构体，添加心跳相关字段：
+      - randomHeartbeatEnabled：是否启用随机心跳间隔
+      - minHeartbeatInterval：最小心跳间隔（默认1秒）
+      - maxHeartbeatInterval：最大心跳间隔（默认24小时）
+      - heartbeatFailCount：心跳失败计数
+      - heartbeatTimeout：心跳超时时间
+      - lastHeartbeatTime：上次心跳时间
+    - 实现随机心跳功能：
+      - EnableRandomHeartbeat：启用随机心跳间隔
+      - DisableRandomHeartbeat：禁用随机心跳间隔
+      - updateHeartbeatInterval：更新随机心跳间隔
+    - 增强心跳循环和发送功能：
+      - 更新heartbeatLoop方法，支持心跳失败检测和协议切换
+      - 更新sendHeartbeat方法，添加心跳状态信息
+      - 实现心跳失败计数和协议切换逻辑
+  - 模块化设计：
+    - 增强ModuleManager功能：
+      - 添加LoadModuleFromBytes方法，支持从字节数组动态加载模块
+      - 添加IsModuleLoaded方法，检查模块是否已加载
+      - 使用Go的plugin包实现动态模块加载
+    - 实现Shell模块作为示例：
+      - 创建shell模块包和结构体
+      - 实现Module接口的所有方法（Init、Execute、Cleanup）
+      - 支持跨平台的shell命令执行（Windows和Unix-like系统）
+      - 提供结构化的参数和结果处理
+    - 更新客户端模块处理：
+      - 增强handleLoadModule方法，支持从字节数组加载模块
+      - 添加模块加载结果的详细反馈
+      - 实现模块加载错误处理
+- **测试内容**：
+  - 客户端心跳测试：
+    - 测试基本心跳功能和间隔设置
+    - 验证随机心跳启用和禁用功能
+    - 测试心跳失败处理和协议切换
+    - 验证心跳状态信息的正确性
+  - 模块管理器测试：
+    - 测试模块加载和卸载功能
+    - 验证模块执行和参数传递
+    - 测试模块查询和列表功能
+    - 验证错误处理（如重复加载、模块不存在）
+  - Shell模块测试：
+    - 测试命令执行功能
+    - 验证跨平台支持
+    - 测试错误处理和结果格式
+    - 验证初始化和清理功能
+- **实现特点**：
+  - 灵活的心跳配置，支持1秒到24小时的随机间隔
+  - 智能的协议切换机制，基于心跳失败计数
+  - 安全的动态模块加载，使用Go的plugin系统
+  - 统一的模块接口，确保一致的行为
+  - 跨平台的Shell模块实现
+  - 详细的错误处理和状态反馈
+  - 全面的测试覆盖，验证所有核心功能
+- **调用示例**：
+  ```go
+  // 创建客户端
+  config := client.Config{
+      ID:                     "test-client",
+      Name:                   "Test Client",
+      ServerAddresses:        map[string]string{"tcp": "tcp://localhost:8080"},
+      HeartbeatInterval:      60 * time.Second,
+      ProtocolSwitchThreshold: 3,
+  }
+  
+  c, err := client.NewClient(config)
+  if err != nil {
+      log.Fatalf("Failed to create client: %v", err)
+  }
+  
+  // 启动客户端
+  err = c.Start()
+  if err != nil {
+      log.Fatalf("Failed to start client: %v", err)
+  }
+  
+  // 启用随机心跳
+  c.EnableRandomHeartbeat(5*time.Second, 5*time.Minute)
+  
+  // 加载Shell模块
+  shellModuleBytes := []byte{...} // 模块字节码
+  err = c.moduleMgr.LoadModuleFromBytes("shell", shellModuleBytes)
+  if err != nil {
+      log.Fatalf("Failed to load shell module: %v", err)
+  }
+  
+  // 执行Shell模块
+  params := json.RawMessage(`{"command": "echo hello"}`)
+  result, err := c.moduleMgr.ExecuteModule(context.Background(), "shell", params)
+  if err != nil {
+      log.Fatalf("Failed to execute shell module: %v", err)
+  }
+  
+  var shellResult struct {
+      Success bool   `json:"success"`
+      Output  string `json:"output"`
+      Error   string `json:"error,omitempty"`
+  }
+  
+  err = json.Unmarshal(result, &shellResult)
+  if err != nil {
+      log.Fatalf("Failed to parse shell result: %v", err)
+  }
+  
+  fmt.Printf("Shell output: %s\n", shellResult.Output)
+  
+  // 禁用随机心跳
+  c.DisableRandomHeartbeat()
+  
+  // 停止客户端
+  err = c.Stop()
+  if err != nil {
+      log.Fatalf("Failed to stop client: %v", err)
+  }
+  ```
+- **遇到的问题与解决方案**：
+  - 问题：Go plugin系统的平台限制
+  - 解决方案：添加平台检测，在不支持的平台上提供备选实现
+  - 问题：心跳随机间隔可能导致过于频繁的心跳
+  - 解决方案：实现最小间隔限制，确保心跳不会过于频繁
+  - 问题：模块加载时的临时文件管理
+  - 解决方案：使用ioutil.TempFile创建临时文件，并在加载后自动删除
+  - 问题：Shell模块在不同操作系统上的命令差异
+  - 解决方案：使用runtime.GOOS检测操作系统，并使用相应的shell命令（cmd或sh）
+- **下一步计划**：
+  - 实现更多内置模块（文件操作、进程管理、网络工具）
+  - 增强模块安全性，添加签名验证
+  - 实现模块版本管理和兼容性检查
+  - 开发Builder工具，支持客户端定制化构建

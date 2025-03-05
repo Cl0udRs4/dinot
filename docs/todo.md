@@ -11,8 +11,11 @@
   - 已创建 [模块划分文档](requirements/module_division.md)，包含初步模块划分和接口设计
 
 ### 1.2 架构设计
-- [ ] 接口设计
-- [ ] 详细架构图绘制
+- [x] 接口设计
+  - 已完成 Server、Client 和 Builder 三大核心组件的接口设计
+  - 已定义 Protocol 接口及其实现规范
+- [x] 详细架构图绘制
+  - 已创建系统架构图，包含模块间的交互关系和数据流
 ## 阶段 2：核心模块开发与单元测试
 
 ### 2.1 Server 模块开发
@@ -92,6 +95,149 @@
 #### 2.1.3 控制接口实现
 - [x] 实现Console模式（命令行交互）
 - [x] 实现HTTP API（RESTful接口）
+
+### 2.2 Client 模块开发
+
+#### 2.2.1 多协议支持与自动切换
+- [x] 根据 Builder 配置实现内置 TCP、UDP、WS、ICMP、DNS 协议支持
+- [x] 开发超时检测及自动切换逻辑
+- [x] 编写单元测试模拟协议切换场景，记录测试结果
+
+### 任务2.2.1：多协议支持与自动切换
+- **完成时间**：2025-03-05
+- **主要内容**：
+  1. 实现多协议支持，包括 TCP、UDP、WebSocket、ICMP 和 DNS
+  2. 开发超时检测机制和自动协议切换逻辑
+  3. 编写单元测试验证协议切换功能
+- **代码实现**：
+  - 协议接口（Protocol）：
+    - 定义统一的协议接口，包括连接、断开、发送和接收方法
+    - 支持状态查询和配置更新
+    - 提供错误处理和连接管理
+  - 协议实现：
+    - TCP协议：支持标准TCP连接，包含超时处理和重试机制
+    - UDP协议：支持无连接UDP通信，实现可靠性保障
+    - WebSocket协议：支持WS和WSS连接，包含心跳保活
+    - ICMP协议：支持ICMP echo请求/响应，需要root权限
+    - DNS协议：支持基于DNS查询的数据传输，使用TXT记录
+  - 超时检测器（TimeoutDetector）：
+    - 监控协议活动，检测通信超时
+    - 支持配置超时阈值和检查间隔
+    - 提供超时事件处理和协议切换触发
+  - 协议切换器（ProtocolSwitcher）：
+    - 管理多个协议实例，支持动态切换
+    - 实现多种切换策略：顺序、随机和加权
+    - 支持抖动间隔，避免可预测的切换模式
+  - 协议管理器（ProtocolManager）：
+    - 统一管理所有协议实例
+    - 处理协议注册、激活和切换
+    - 提供失败处理和成功记录
+  - 客户端（Client）：
+    - 集成协议切换器，提供统一的通信接口
+    - 支持连接、断开、发送和接收操作
+    - 提供事件处理器用于连接、断开和协议切换事件
+- **测试内容**：
+  - 协议接口实现测试：
+    - 验证所有协议实现符合接口规范
+    - 测试配置验证和更新功能
+    - 检查状态管理和错误处理
+  - 超时检测测试：
+    - 模拟通信超时场景
+    - 验证超时计数和阈值触发
+    - 测试活动记录和超时重置
+  - 协议切换测试：
+    - 验证不同切换策略（顺序、随机、加权）
+    - 测试抖动间隔配置
+    - 模拟多次切换场景
+  - 客户端集成测试：
+    - 测试客户端连接和断开
+    - 验证数据发送和接收
+    - 检查事件处理器调用
+- **实现特点**：
+  - 模块化设计：每个协议独立实现，易于扩展
+  - 并发安全：使用互斥锁保护共享资源
+  - 上下文管理：使用context控制协议生命周期
+  - 错误处理：统一的错误类型和处理机制
+  - 配置灵活：支持运行时更新协议配置
+  - 自动恢复：检测超时并自动切换协议
+- **调用示例**：
+  ```go
+  // 创建客户端配置
+  config := protocol.ClientConfig{
+      Protocols: map[string]protocol.Config{
+          "tcp": {ServerAddress: "example.com:8080"},
+          "udp": {ServerAddress: "example.com:8081"},
+          "ws":  {ServerAddress: "ws://example.com:8082/ws"},
+          "dns": {ServerAddress: "example.com@8.8.8.8"},
+      },
+      PrimaryProtocol:   "tcp",
+      FallbackOrder:     []string{"tcp", "ws", "udp", "dns"},
+      SwitchStrategy:    protocol.StrategySequential,
+      TimeoutThreshold:  3,
+      CheckInterval:     5,
+      MaxInactivity:     60,
+  }
+  
+  // 创建客户端
+  client, err := protocol.NewClient(config)
+  if err != nil {
+      log.Fatalf("Failed to create client: %v", err)
+  }
+  
+  // 设置事件处理器
+  client.SetOnProtocolSwitchHandler(func(old, new protocol.Protocol) {
+      log.Printf("Switched from %s to %s", old.GetName(), new.GetName())
+  })
+  
+  // 连接到服务器
+  err = client.Connect()
+  if err != nil {
+      log.Fatalf("Failed to connect: %v", err)
+  }
+  
+  // 发送数据
+  data := []byte("Hello, Server!")
+  _, err = client.Send(data)
+  if err != nil {
+      log.Printf("Failed to send data: %v", err)
+  }
+  
+  // 接收数据
+  response, err := client.Receive()
+  if err != nil {
+      log.Printf("Failed to receive data: %v", err)
+  } else {
+      log.Printf("Received: %s", string(response))
+  }
+  
+  // 断开连接
+  client.Disconnect()
+  ```
+- **遇到的问题与解决方案**：
+  - 问题：DNS协议实现中的数据分片和重组逻辑复杂
+  - 解决方案：实现基于TXT记录的数据分片和序列号机制，确保数据完整性
+  - 问题：ICMP协议需要root权限
+  - 解决方案：添加权限检查，非root环境下提供明确错误信息
+  - 问题：协议切换可能导致数据丢失
+  - 解决方案：实现优雅切换机制，确保切换前完成当前通信
+  - 问题：并发访问协议实例可能导致竞态条件
+  - 解决方案：使用读写锁（sync.RWMutex）保护协议访问
+- **下一步计划**：
+  - 实现加密通信模块（AES与ChaCha20）
+  - 开发心跳模块和模块化设计
+  - 集成Builder工具配置
+
+#### 2.2.2 加密通信模块实现
+- [ ] 实现 AES 加密通信，包括密钥协商和定期更新
+- [ ] 实现 ChaCha20 加密通信，包括密钥协商和定期更新
+- [ ] 编写单元测试验证加密通信功能
+
+#### 2.2.3 心跳模块和模块化设计实现
+- [ ] 实现心跳模块，支持定期心跳和状态上报
+- [ ] 实现模块化设计，支持动态加载/调用/卸载模块
+- [ ] 实现通信反馈功能，确保指令执行结果可靠传输
+- [ ] 编写单元测试验证心跳和模块化功能
+
 ### 任务2.1.2：客户端管理模块实现
 - **完成时间**：2025-03-05
 - **主要内容**：

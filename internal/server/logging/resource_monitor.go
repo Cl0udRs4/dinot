@@ -104,15 +104,22 @@ func (m *ResourceMonitor) Start() {
 // Stop stops the resource monitor
 func (m *ResourceMonitor) Stop() {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-
+	
 	if !m.running {
+		m.mu.Unlock()
 		return
 	}
 
-	m.cancel()
-	m.wg.Wait()
+	// Set running to false and cancel the context while holding the lock
 	m.running = false
+	m.cancel()
+	
+	// Release the lock before waiting for goroutines to finish
+	// This allows the goroutine to acquire the lock if needed
+	m.mu.Unlock()
+	
+	// Wait for goroutines to finish
+	m.wg.Wait()
 
 	m.logger.Info("Resource monitor stopped", nil)
 }
@@ -168,7 +175,8 @@ func (m *ResourceMonitor) collectResourceStats() {
 
 	// Collect CPU stats
 	if m.config.EnableCPU {
-		if cpuPercent, err := cpu.Percent(0, false); err == nil && len(cpuPercent) > 0 {
+		// Use a small interval (100ms) instead of 0 to ensure we get CPU stats on first call
+		if cpuPercent, err := cpu.Percent(100*time.Millisecond, false); err == nil && len(cpuPercent) > 0 {
 			stats.CPUUsage = cpuPercent[0]
 		}
 	}

@@ -35,6 +35,15 @@ type Server struct {
 	
 	// monitorManager monitors exceptions and handles reconnection
 	monitorManager *logging.MonitorManager
+	
+	// resourceMonitor monitors system resources
+	resourceMonitor *logging.ResourceMonitor
+	
+	// patternDetector detects exception patterns
+	patternDetector *logging.PatternDetector
+	
+	// logAnalyzer analyzes logs
+	logAnalyzer *logging.LogAnalyzer
 }
 
 // NewServer creates a new C2 server with console interface
@@ -42,6 +51,19 @@ func NewServer() *Server {
 	// Initialize logger
 	logger := logging.GetLogger()
 	logger.SetLevel(logging.InfoLevel)
+	
+	// Enable file logging
+	fileConfig := logging.FileLogConfig{
+		Directory:  "logs",
+		MaxSize:    10, // 10 MB
+		MaxAge:     7,  // 7 days
+		MaxBackups: 5,
+		Compress:   true,
+	}
+	
+	if err := logger.EnableFileLogging(fileConfig); err != nil {
+		fmt.Printf("Warning: Failed to enable file logging: %v\n", err)
+	}
 	
 	clientManager := client.NewClientManager()
 	heartbeatMonitor := client.NewHeartbeatMonitor(clientManager, 30*time.Second, 60*time.Second)
@@ -77,6 +99,33 @@ func NewServer() *Server {
 	
 	monitorManager := logging.NewMonitorManager(logger, clientManager, monitorConfig)
 	
+	// Create resource monitor
+	resourceConfig := logging.ResourceMonitorConfig{
+		Interval:      30 * time.Second,
+		EnableCPU:     true,
+		EnableMemory:  true,
+		EnableNetwork: true,
+	}
+	
+	resourceMonitor := logging.NewResourceMonitor(logger, resourceConfig)
+	
+	// Create pattern detector
+	patternConfig := logging.PatternDetectorConfig{
+		TimeWindow:         60 * 60, // 1 hour in seconds
+		MinFrequency:       3,       // At least 3 occurrences to be a pattern
+		SimilarityThreshold: 0.8,    // 80% similarity threshold
+	}
+	
+	patternDetector := logging.NewPatternDetector(logger, clientManager, patternConfig)
+	
+	// Create log analyzer
+	analyzerConfig := logging.LogAnalyzerConfig{
+		MaxEntries:      1000,
+		TopMessageCount: 10,
+	}
+	
+	logAnalyzer := logging.NewLogAnalyzer(analyzerConfig)
+	
 	return &Server{
 		listenerManager:  listenerManager,
 		clientManager:    clientManager,
@@ -85,6 +134,9 @@ func NewServer() *Server {
 		apiHandler:       apiHandler,
 		logger:           logger,
 		monitorManager:   monitorManager,
+		resourceMonitor:  resourceMonitor,
+		patternDetector:  patternDetector,
+		logAnalyzer:      logAnalyzer,
 	}
 }
 
@@ -102,6 +154,16 @@ func (s *Server) Start() error {
 	// Start the monitor manager
 	s.monitorManager.Start()
 	s.logger.Info("Monitor manager started", nil)
+	
+	// Start the resource monitor
+	s.resourceMonitor.Start()
+	s.logger.Info("Resource monitor started", nil)
+	
+	// Detect initial exception patterns
+	patterns := s.patternDetector.DetectPatterns()
+	s.logger.Info("Initial exception pattern detection completed", map[string]interface{}{
+		"pattern_count": len(patterns),
+	})
 	
 	// Set up signal handling for graceful shutdown
 	sigChan := make(chan os.Signal, 1)
@@ -145,6 +207,10 @@ func (s *Server) Stop() {
 	s.logger.Info("Stopping console interface", nil)
 	s.console.Stop()
 	
+	// Stop the resource monitor
+	s.logger.Info("Stopping resource monitor", nil)
+	s.resourceMonitor.Stop()
+	
 	// Stop the monitor manager
 	s.logger.Info("Stopping monitor manager", nil)
 	s.monitorManager.Stop()
@@ -183,4 +249,19 @@ func (s *Server) GetLogger() logging.Logger {
 // GetMonitorManager returns the monitor manager
 func (s *Server) GetMonitorManager() *logging.MonitorManager {
 	return s.monitorManager
+}
+
+// GetResourceMonitor returns the resource monitor
+func (s *Server) GetResourceMonitor() *logging.ResourceMonitor {
+	return s.resourceMonitor
+}
+
+// GetPatternDetector returns the pattern detector
+func (s *Server) GetPatternDetector() *logging.PatternDetector {
+	return s.patternDetector
+}
+
+// GetLogAnalyzer returns the log analyzer
+func (s *Server) GetLogAnalyzer() *logging.LogAnalyzer {
+	return s.logAnalyzer
 }

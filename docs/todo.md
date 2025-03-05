@@ -672,3 +672,134 @@
   - 实现更复杂的异常检测算法，支持模式识别
   - 添加系统资源监控功能（CPU、内存、网络）
   - 实现日志聚合和分析功能
+
+### 任务2.1.4b：日志与监控模块增强
+- **完成时间**：2025-03-06
+- **主要内容**：
+  1. 实现文件输出和日志轮转功能
+  2. 修复WithField和WithFields方法的并发安全问题
+  3. 实现系统资源监控（CPU、内存、网络）
+  4. 实现异常模式检测和分析
+  5. 实现日志聚合和分析功能
+- **代码实现**：
+  - 文件日志系统：
+    - 支持配置日志文件目录、大小限制和轮转策略
+    - 使用lumberjack实现日志轮转
+    - 支持同时输出到控制台和文件
+    - 提供EnableFileLogging和DisableFileLogging方法
+  - 资源监控系统（ResourceMonitor）：
+    - 监控CPU使用率、内存使用和网络流量
+    - 提供历史数据存储和统计分析
+    - 支持可配置的监控间隔和启用选项
+    - 使用gopsutil库获取系统资源信息
+  - 异常模式检测（PatternDetector）：
+    - 分析异常报告中的模式和频率
+    - 识别重复出现的异常信息
+    - 提供按客户端和模块的异常模式分组
+    - 支持配置时间窗口和最小频率阈值
+  - 日志聚合与分析（LogAnalyzer）：
+    - 收集和存储日志条目
+    - 提供按级别和消息的统计分析
+    - 识别最常见的日志消息和模式
+    - 支持配置最大条目数和分析参数
+  - 服务器集成：
+    - 在Server结构中添加资源监控、模式检测和日志分析组件
+    - 在启动时初始化和配置所有组件
+    - 在停止时优雅关闭所有组件
+    - 提供GetResourceMonitor、GetPatternDetector和GetLogAnalyzer方法
+- **测试内容**：
+  - 文件日志功能测试：
+    - 验证日志文件创建和写入
+    - 测试WithField方法的文件输出
+    - 测试DisableFileLogging功能
+  - 资源监控测试：
+    - 验证CPU、内存和网络数据收集
+    - 测试不同配置选项（启用/禁用特定监控）
+    - 验证历史数据存储和检索
+  - 异常模式检测测试：
+    - 测试模式识别算法
+    - 验证按客户端和模块的模式分组
+    - 测试时间窗口和频率阈值配置
+  - 日志分析测试：
+    - 验证日志条目收集和统计
+    - 测试最大条目数限制
+    - 验证按级别筛选和统计功能
+- **实现特点**：
+  - 使用lumberjack实现高效的日志轮转
+  - 基于gopsutil实现跨平台的资源监控
+  - 线程安全的模式检测和日志分析
+  - 与现有系统的无缝集成
+  - 模块化设计，支持灵活配置
+  - 完整的测试覆盖，确保代码质量
+- **调用示例**：
+  ```go
+  // 启用文件日志
+  fileConfig := logging.FileLogConfig{
+    Directory:  "logs",
+    MaxSize:    10, // 10 MB
+    MaxAge:     7,  // 7 days
+    MaxBackups: 5,
+    Compress:   true,
+  }
+  logger.EnableFileLogging(fileConfig)
+  
+  // 创建资源监控器
+  resourceConfig := logging.ResourceMonitorConfig{
+    Interval:      30 * time.Second,
+    EnableCPU:     true,
+    EnableMemory:  true,
+    EnableNetwork: true,
+  }
+  resourceMonitor := logging.NewResourceMonitor(logger, resourceConfig)
+  resourceMonitor.Start()
+  
+  // 获取资源统计
+  stats := resourceMonitor.GetLatestStats()
+  fmt.Printf("CPU: %.2f%%, Memory: %.2f%%\n", stats.CPUUsage, stats.MemoryUsage)
+  
+  // 创建模式检测器
+  patternConfig := logging.PatternDetectorConfig{
+    TimeWindow:         60 * 60, // 1 hour
+    MinFrequency:       3,
+    SimilarityThreshold: 0.8,
+  }
+  detector := logging.NewPatternDetector(logger, clientManager, patternConfig)
+  
+  // 检测异常模式
+  patterns := detector.DetectPatterns()
+  for _, pattern := range patterns {
+    fmt.Printf("Pattern: %s, Frequency: %d\n", pattern.MessagePattern, pattern.Frequency)
+  }
+  
+  // 创建日志分析器
+  analyzerConfig := logging.LogAnalyzerConfig{
+    MaxEntries:      1000,
+    TopMessageCount: 10,
+  }
+  analyzer := logging.NewLogAnalyzer(analyzerConfig)
+  
+  // 添加日志条目并获取统计
+  analyzer.AddEntry(logging.LogEntry{
+    Timestamp: time.Now(),
+    Level:     logging.InfoLevel,
+    Message:   "Test message",
+    Fields:    map[string]interface{}{"key": "value"},
+  })
+  
+  stats := analyzer.GetStats()
+  fmt.Printf("Total entries: %d\n", stats.TotalEntries)
+  ```
+- **遇到的问题与解决方案**：
+  - 问题：文件日志路径创建失败
+  - 解决方案：添加目录自动创建功能，确保日志目录存在
+  - 问题：资源监控数据收集的性能开销
+  - 解决方案：使用可配置的监控间隔和选择性启用监控项，减少资源消耗
+  - 问题：模式检测算法的准确性
+  - 解决方案：实现基于消息相似度的模式检测，支持配置相似度阈值
+  - 问题：日志分析器内存占用过高
+  - 解决方案：实现最大条目数限制，自动清理最旧的日志条目
+- **下一步计划**：
+  - 实现更高级的日志分析算法，支持异常检测
+  - 添加日志可视化功能，提供图表和仪表板
+  - 实现分布式日志收集和聚合
+  - 增强资源监控，支持自定义告警阈值

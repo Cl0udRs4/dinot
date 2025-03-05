@@ -46,6 +46,22 @@ type Client struct {
     lastHeartbeatTime     time.Time
     heartbeatFailCount    int
     heartbeatTimeout      time.Duration
+    feedbackConfig        FeedbackConfig
+}
+
+// FeedbackConfig represents the configuration for the feedback mechanism
+type FeedbackConfig struct {
+    // MaxRetries is the maximum number of retries for a failed command
+    MaxRetries int
+    
+    // RetryInterval is the base interval between retries
+    RetryInterval time.Duration
+    
+    // MaxRetryInterval is the maximum interval between retries
+    MaxRetryInterval time.Duration
+    
+    // RetryBackoffFactor is the factor by which the retry interval increases
+    RetryBackoffFactor float64
 }
 
 // NewClient creates a new client
@@ -94,6 +110,12 @@ func NewClient(config Config) (*Client, error) {
         heartbeatTimeout:      30 * time.Second,
         heartbeatFailCount:    0,
         lastHeartbeatTime:     time.Now(),
+        feedbackConfig: FeedbackConfig{
+            MaxRetries:         3,
+            RetryInterval:      1 * time.Second,
+            MaxRetryInterval:   30 * time.Second,
+            RetryBackoffFactor: 2.0,
+        },
     }, nil
 }
 
@@ -239,28 +261,115 @@ func (c *Client) processNextCommand() {
 
 // handleExecuteModule handles the execute_module command
 func (c *Client) handleExecuteModule(moduleName string, params json.RawMessage) {
-    result, err := c.moduleMgr.ExecuteModule(c.ctx, moduleName, params)
+    var commandID string
     
-    response := map[string]interface{}{
-        "type":      "module_result",
-        "client_id": c.config.ID,
-        "module":    moduleName,
-        "success":   err == nil,
+    // Extract command ID if present
+    var commandData struct {
+        CommandID string `json:"command_id,omitempty"`
     }
     
+    if err := json.Unmarshal(params, &commandData); err == nil && commandData.CommandID != "" {
+        commandID = commandData.CommandID
+    }
+    
+    // Create initial response with "processing" status
+    response := FeedbackResponse{
+        Type:      "module_result",
+        ClientID:  c.config.ID,
+        CommandID: commandID,
+        Module:    moduleName,
+        Success:   false,
+        Status:    "processing",
+        Timestamp: time.Now().Unix(),
+    }
+    
+    // Send initial feedback
+    err := c.sendFeedback(response)
     if err != nil {
-        response["error"] = err.Error()
+        // Log error but continue processing
+    }
+    
+    // Execute module with retry logic
+    var result json.RawMessage
+    var execErr error
+    retryCount := 0
+    retryInterval := c.feedbackConfig.RetryInterval
+    
+    for retryCount <= c.feedbackConfig.MaxRetries {
+        result, execErr = c.moduleMgr.ExecuteModule(c.ctx, moduleName, params)
+        
+        if execErr == nil {
+            // Successful execution
+            break
+        }
+        
+        // Check if error is retryable
+        if isRetryableError(execErr) {
+            retryCount++
+            
+            if retryCount > c.feedbackConfig.MaxRetries {
+                break
+            }
+            
+            // Send retry status
+            retryResponse := FeedbackResponse{
+                Type:       "module_result",
+                ClientID:   c.config.ID,
+                CommandID:  commandID,
+                Module:     moduleName,
+                Success:    false,
+                Error:      execErr.Error(),
+                RetryCount: retryCount,
+                Status:     "retrying",
+                Timestamp:  time.Now().Unix(),
+            }
+            
+            err = c.sendFeedback(retryResponse)
+            if err != nil {
+                // Log error but continue processing
+            }
+            
+            // Update retry interval with exponential backoff
+            retryInterval = time.Duration(float64(retryInterval) * c.feedbackConfig.RetryBackoffFactor)
+            if retryInterval > c.feedbackConfig.MaxRetryInterval {
+                retryInterval = c.feedbackConfig.MaxRetryInterval
+            }
+            
+            // Wait before retrying
+            select {
+            case <-c.ctx.Done():
+                execErr = c.ctx.Err()
+                break
+            case <-time.After(retryInterval):
+                // Continue with retry
+            }
+        } else {
+            // Non-retryable error
+            break
+        }
+    }
+    
+    // Prepare final response
+    finalResponse := FeedbackResponse{
+        Type:       "module_result",
+        ClientID:   c.config.ID,
+        CommandID:  commandID,
+        Module:     moduleName,
+        Success:    execErr == nil,
+        RetryCount: retryCount,
+        Timestamp:  time.Now().Unix(),
+    }
+    
+    if execErr != nil {
+        finalResponse.Error = execErr.Error()
+        finalResponse.Status = "failed"
     } else {
-        response["result"] = result
+        finalResponse.Result = result
+        finalResponse.Status = "completed"
     }
     
-    data, err := json.Marshal(response)
-    if err != nil {
-        // Log error
-        return
-    }
-    
-    err = c.protocolMgr.Send(data)
+    // Send final feedback
+    err = c.sendFeedback(finalResponse)
     if err != nil {
         // Log error
     }
@@ -268,68 +377,205 @@ func (c *Client) handleExecuteModule(moduleName string, params json.RawMessage) 
 
 // handleLoadModule handles the load_module command
 func (c *Client) handleLoadModule(moduleName string, params json.RawMessage) {
-    var moduleData struct {
+    // Extract command ID if present
+    var commandData struct {
+        CommandID   string `json:"command_id,omitempty"`
         ModuleBytes []byte `json:"module_bytes"`
     }
     
-    err := json.Unmarshal(params, &moduleData)
+    err := json.Unmarshal(params, &commandData)
     
-    response := map[string]interface{}{
-        "type":      "module_load_result",
-        "client_id": c.config.ID,
-        "module":    moduleName,
-        "success":   false,
+    // Create initial response with "processing" status
+    response := FeedbackResponse{
+        Type:      "module_load_result",
+        ClientID:  c.config.ID,
+        CommandID: commandData.CommandID,
+        Module:    moduleName,
+        Success:   false,
+        Status:    "processing",
+        Timestamp: time.Now().Unix(),
+    }
+    
+    // Send initial feedback
+    c.sendFeedback(response)
+    
+    // Prepare final response
+    finalResponse := FeedbackResponse{
+        Type:      "module_load_result",
+        ClientID:  c.config.ID,
+        CommandID: commandData.CommandID,
+        Module:    moduleName,
+        Success:   false,
+        Timestamp: time.Now().Unix(),
     }
     
     if err != nil {
-        response["error"] = fmt.Sprintf("Failed to parse module data: %v", err)
+        finalResponse.Error = fmt.Sprintf("Failed to parse module data: %v", err)
+        finalResponse.Status = "failed"
     } else {
-        // Load the module
-        err = c.moduleMgr.LoadModuleFromBytes(moduleName, moduleData.ModuleBytes)
-        if err != nil {
-            response["error"] = fmt.Sprintf("Failed to load module: %v", err)
+        // Load the module with retry logic
+        retryCount := 0
+        retryInterval := c.feedbackConfig.RetryInterval
+        var loadErr error
+        
+        for retryCount <= c.feedbackConfig.MaxRetries {
+            loadErr = c.moduleMgr.LoadModuleFromBytes(moduleName, commandData.ModuleBytes)
+            
+            if loadErr == nil {
+                // Successful loading
+                break
+            }
+            
+            // Check if error is retryable
+            if isRetryableError(loadErr) {
+                retryCount++
+                
+                if retryCount > c.feedbackConfig.MaxRetries {
+                    break
+                }
+                
+                // Send retry status
+                retryResponse := FeedbackResponse{
+                    Type:       "module_load_result",
+                    ClientID:   c.config.ID,
+                    CommandID:  commandData.CommandID,
+                    Module:     moduleName,
+                    Success:    false,
+                    Error:      loadErr.Error(),
+                    RetryCount: retryCount,
+                    Status:     "retrying",
+                    Timestamp:  time.Now().Unix(),
+                }
+                
+                c.sendFeedback(retryResponse)
+                
+                // Update retry interval with exponential backoff
+                retryInterval = time.Duration(float64(retryInterval) * c.feedbackConfig.RetryBackoffFactor)
+                if retryInterval > c.feedbackConfig.MaxRetryInterval {
+                    retryInterval = c.feedbackConfig.MaxRetryInterval
+                }
+                
+                // Wait before retrying
+                select {
+                case <-c.ctx.Done():
+                    loadErr = c.ctx.Err()
+                    break
+                case <-time.After(retryInterval):
+                    // Continue with retry
+                }
+            } else {
+                // Non-retryable error
+                break
+            }
+        }
+        
+        if loadErr != nil {
+            finalResponse.Error = fmt.Sprintf("Failed to load module: %v", loadErr)
+            finalResponse.Status = "failed"
+            finalResponse.RetryCount = retryCount
         } else {
-            response["success"] = true
+            finalResponse.Success = true
+            finalResponse.Status = "completed"
+            finalResponse.RetryCount = retryCount
         }
     }
     
-    data, err := json.Marshal(response)
-    if err != nil {
-        // Log error
-        return
-    }
-    
-    err = c.protocolMgr.Send(data)
-    if err != nil {
-        // Log error
-    }
+    // Send final feedback
+    c.sendFeedback(finalResponse)
 }
 
 // handleUnloadModule handles the unload_module command
 func (c *Client) handleUnloadModule(moduleName string) {
-    err := c.moduleMgr.UnloadModule(moduleName)
-    
-    response := map[string]interface{}{
-        "type":      "module_unload_result",
-        "client_id": c.config.ID,
-        "module":    moduleName,
-        "success":   err == nil,
+    // Create initial response with "processing" status
+    response := FeedbackResponse{
+        Type:      "module_unload_result",
+        ClientID:  c.config.ID,
+        CommandID: "", // No command ID for unload module
+        Module:    moduleName,
+        Success:   false,
+        Status:    "processing",
+        Timestamp: time.Now().Unix(),
     }
     
-    if err != nil {
-        response["error"] = err.Error()
+    // Send initial feedback
+    c.sendFeedback(response)
+    
+    // Unload the module with retry logic
+    retryCount := 0
+    retryInterval := c.feedbackConfig.RetryInterval
+    var unloadErr error
+    
+    for retryCount <= c.feedbackConfig.MaxRetries {
+        unloadErr = c.moduleMgr.UnloadModule(moduleName)
+        
+        if unloadErr == nil {
+            // Successful unloading
+            break
+        }
+        
+        // Check if error is retryable
+        if isRetryableError(unloadErr) {
+            retryCount++
+            
+            if retryCount > c.feedbackConfig.MaxRetries {
+                break
+            }
+            
+            // Send retry status
+            retryResponse := FeedbackResponse{
+                Type:       "module_unload_result",
+                ClientID:   c.config.ID,
+                CommandID:  "", // No command ID for unload module
+                Module:     moduleName,
+                Success:    false,
+                Error:      unloadErr.Error(),
+                RetryCount: retryCount,
+                Status:     "retrying",
+                Timestamp:  time.Now().Unix(),
+            }
+            
+            c.sendFeedback(retryResponse)
+            
+            // Update retry interval with exponential backoff
+            retryInterval = time.Duration(float64(retryInterval) * c.feedbackConfig.RetryBackoffFactor)
+            if retryInterval > c.feedbackConfig.MaxRetryInterval {
+                retryInterval = c.feedbackConfig.MaxRetryInterval
+            }
+            
+            // Wait before retrying
+            select {
+            case <-c.ctx.Done():
+                unloadErr = c.ctx.Err()
+                break
+            case <-time.After(retryInterval):
+                // Continue with retry
+            }
+        } else {
+            // Non-retryable error
+            break
+        }
     }
     
-    data, err := json.Marshal(response)
-    if err != nil {
-        // Log error
-        return
+    // Prepare final response
+    finalResponse := FeedbackResponse{
+        Type:       "module_unload_result",
+        ClientID:   c.config.ID,
+        CommandID:  "", // No command ID for unload module
+        Module:     moduleName,
+        Success:    unloadErr == nil,
+        RetryCount: retryCount,
+        Timestamp:  time.Now().Unix(),
     }
     
-    err = c.protocolMgr.Send(data)
-    if err != nil {
-        // Log error
+    if unloadErr != nil {
+        finalResponse.Error = unloadErr.Error()
+        finalResponse.Status = "failed"
+    } else {
+        finalResponse.Status = "completed"
     }
+    
+    // Send final feedback
+    c.sendFeedback(finalResponse)
 }
 
 // EnableRandomHeartbeat enables random heartbeat intervals
@@ -379,4 +625,99 @@ func (c *Client) updateHeartbeatInterval() {
 // GetSupportedModules returns a list of supported modules
 func (c *Client) GetSupportedModules() []string {
     return c.moduleMgr.GetModules()
+}
+
+// FeedbackResponse represents a standardized response format for command execution
+type FeedbackResponse struct {
+    // Type is the type of the response
+    Type string `json:"type"`
+    
+    // ClientID is the ID of the client
+    ClientID string `json:"client_id"`
+    
+    // CommandID is the ID of the command
+    CommandID string `json:"command_id,omitempty"`
+    
+    // Module is the name of the module
+    Module string `json:"module,omitempty"`
+    
+    // Success indicates whether the command was successful
+    Success bool `json:"success"`
+    
+    // Result contains the result of the command
+    Result json.RawMessage `json:"result,omitempty"`
+    
+    // Error contains the error message if the command failed
+    Error string `json:"error,omitempty"`
+    
+    // RetryCount is the number of retries attempted
+    RetryCount int `json:"retry_count,omitempty"`
+    
+    // Status is the current status of the command
+    Status string `json:"status,omitempty"`
+    
+    // Timestamp is the time when the response was created
+    Timestamp int64 `json:"timestamp"`
+}
+
+// sendFeedback sends feedback to the server with retry logic
+func (c *Client) sendFeedback(response FeedbackResponse) error {
+    data, err := json.Marshal(response)
+    if err != nil {
+        // Log error
+        return err
+    }
+    
+    var lastErr error
+    retryCount := 0
+    retryInterval := c.feedbackConfig.RetryInterval
+    
+    for retryCount <= c.feedbackConfig.MaxRetries {
+        err = c.protocolMgr.Send(data)
+        if err == nil {
+            // Successfully sent feedback
+            return nil
+        }
+        
+        lastErr = err
+        retryCount++
+        
+        if retryCount > c.feedbackConfig.MaxRetries {
+            break
+        }
+        
+        // Update retry interval with exponential backoff
+        retryInterval = time.Duration(float64(retryInterval) * c.feedbackConfig.RetryBackoffFactor)
+        if retryInterval > c.feedbackConfig.MaxRetryInterval {
+            retryInterval = c.feedbackConfig.MaxRetryInterval
+        }
+        
+        // Wait before retrying
+        select {
+        case <-c.ctx.Done():
+            return c.ctx.Err()
+        case <-time.After(retryInterval):
+            // Continue with retry
+        }
+    }
+    
+    return fmt.Errorf("failed to send feedback after %d retries: %v", retryCount, lastErr)
+}
+
+// isRetryableError determines if an error is retryable
+func isRetryableError(err error) bool {
+    // Check for network-related errors that are typically retryable
+    if err == protocol.ErrSendFailed || err == protocol.ErrNotConnected {
+        return true
+    }
+    
+    // Check for context cancellation or deadline exceeded
+    if err == context.Canceled || err == context.DeadlineExceeded {
+        return false
+    }
+    
+    // Add more specific error checks as needed
+    
+    // By default, consider errors as non-retryable
+    return false
 }

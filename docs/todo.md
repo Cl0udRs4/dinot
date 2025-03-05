@@ -1081,3 +1081,154 @@
   - 增强模块安全性，添加签名验证
   - 实现模块版本管理和兼容性检查
   - 开发Builder工具，支持客户端定制化构建
+
+### 任务2.2.4：通信反馈机制实现
+- **完成时间**：2025-03-07
+- **主要内容**：
+  1. 实现客户端在接收 Server 下发指令后，返回执行结果与状态反馈
+  2. 实现错误处理及自动重试逻辑
+  3. 编写单元测试验证反馈流程，记录测试结果
+- **代码实现**：
+  - 反馈配置（FeedbackConfig）：
+    - 最大重试次数（MaxRetries）：配置最大允许的重试次数
+    - 重试间隔（RetryInterval）：初始重试间隔时间
+    - 最大重试间隔（MaxRetryInterval）：重试间隔的上限
+    - 重试退避因子（RetryBackoffFactor）：每次重试后间隔增加的倍数
+  - 反馈响应（FeedbackResponse）：
+    - 类型（Type）：模块执行结果、模块加载结果、模块卸载结果
+    - 客户端ID（ClientID）：当前客户端的唯一标识
+    - 命令ID（CommandID）：服务器下发命令的唯一标识
+    - 模块名称（Module）：相关模块的名称
+    - 成功标志（Success）：操作是否成功
+    - 结果数据（Result）：操作的结果数据（JSON格式）
+    - 错误信息（Error）：失败时的错误信息
+    - 重试计数（RetryCount）：已尝试的重试次数
+    - 状态信息（Status）：处理中、重试中、已完成、失败
+    - 时间戳（Timestamp）：反馈生成的时间戳
+  - 反馈发送（sendFeedback）：
+    - 实现指数退避重试逻辑，初始间隔为RetryInterval
+    - 每次重试后，间隔时间乘以RetryBackoffFactor
+    - 间隔时间上限为MaxRetryInterval
+    - 支持最大重试次数限制（MaxRetries）
+    - 支持上下文取消，确保资源正确释放
+  - 命令处理增强：
+    - 模块执行处理（handleExecuteModule）：
+      - 发送初始"processing"状态反馈
+      - 执行模块并处理结果
+      - 对可重试错误实现自动重试
+      - 发送最终状态反馈（completed或failed）
+    - 模块加载处理（handleLoadModule）：
+      - 发送初始"processing"状态反馈
+      - 加载模块并处理结果
+      - 对可重试错误实现自动重试
+      - 发送最终状态反馈
+    - 模块卸载处理（handleUnloadModule）：
+      - 发送初始"processing"状态反馈
+      - 卸载模块并处理结果
+      - 对可重试错误实现自动重试
+      - 发送最终状态反馈
+  - 错误处理：
+    - 实现isRetryableError函数，区分可重试和不可重试错误
+    - 可重试错误包括网络相关错误（如连接重置、超时）
+    - 不可重试错误包括上下文取消、参数错误等
+    - 记录重试次数和详细错误信息
+    - 提供完整的状态反馈，便于服务器端诊断
+- **测试内容**：
+  - 反馈机制基本功能测试：
+    - 验证初始"processing"状态反馈正确发送
+    - 验证最终状态反馈（completed或failed）正确发送
+    - 验证命令ID和模块名称正确传递
+    - 验证结果数据和错误信息正确包含
+  - 重试逻辑测试：
+    - 验证可重试错误的自动重试功能
+    - 验证重试计数正确记录和传递
+    - 验证指数退避算法正确实现
+    - 验证最大重试次数限制有效
+    - 验证重试间隔上限正确应用
+  - 错误处理测试：
+    - 验证不同类型错误的正确分类（可重试vs不可重试）
+    - 验证错误信息正确传递到反馈响应
+    - 验证状态信息正确更新（processing→retrying→completed/failed）
+    - 验证上下文取消时的正确处理
+- **实现特点**：
+  - 标准化的反馈格式，便于服务器端处理和分析
+  - 完整的状态跟踪，提供操作全生命周期的可见性
+  - 智能的重试机制，提高操作成功率
+  - 指数退避算法，避免频繁重试导致的资源浪费
+  - 详细的错误信息，便于问题诊断
+  - 与现有模块系统无缝集成
+  - 线程安全的实现，支持并发操作
+- **调用示例**：
+  ```json
+  // 初始反馈（处理中）
+  {
+    "type": "module_result",
+    "client_id": "test-client",
+    "command_id": "test-command-1",
+    "module": "shell",
+    "success": false,
+    "status": "processing",
+    "timestamp": 1709654800
+  }
+  
+  // 重试反馈
+  {
+    "type": "module_result",
+    "client_id": "test-client",
+    "command_id": "test-command-1",
+    "module": "shell",
+    "success": false,
+    "error": "connection reset by peer",
+    "retry_count": 1,
+    "status": "retrying",
+    "timestamp": 1709654801
+  }
+  
+  // 最终反馈（成功）
+  {
+    "type": "module_result",
+    "client_id": "test-client",
+    "command_id": "test-command-1",
+    "module": "shell",
+    "success": true,
+    "result": {"output": "command output"},
+    "retry_count": 1,
+    "status": "completed",
+    "timestamp": 1709654802
+  }
+  
+  // 最终反馈（失败）
+  {
+    "type": "module_result",
+    "client_id": "test-client",
+    "command_id": "test-command-1",
+    "module": "shell",
+    "success": false,
+    "error": "maximum retry attempts exceeded: connection reset by peer",
+    "retry_count": 3,
+    "status": "failed",
+    "timestamp": 1709654805
+  }
+  ```
+- **测试结果**：
+  - 所有单元测试通过
+  - 验证了反馈机制的正确性和可靠性
+  - 验证了重试逻辑的有效性，包括指数退避算法
+  - 验证了错误处理的完整性，包括可重试和不可重试错误的区分
+  - 验证了与现有模块系统的兼容性
+  - 验证了并发安全性，确保多个命令同时处理时的正确行为
+- **遇到的问题与解决方案**：
+  - 问题：重试逻辑中的goroutine泄漏
+  - 解决方案：使用context.Done()确保在客户端停止时取消所有重试
+  - 问题：JSON序列化时的循环引用
+  - 解决方案：使用json.RawMessage类型存储结果数据，避免循环引用
+  - 问题：重试间隔计算中的溢出风险
+  - 解决方案：添加最大重试间隔限制，防止间隔时间过长
+  - 问题：并发发送反馈时的竞态条件
+  - 解决方案：使用互斥锁保护关键操作，确保线程安全
+- **下一步计划**：
+  - 增强反馈机制，支持批量命令处理
+  - 实现反馈压缩，减少网络流量
+  - 添加反馈优先级，确保关键反馈优先发送
+  - 实现反馈缓存，处理网络暂时不可用的情况
+  - 开发Builder工具，支持客户端定制化构建

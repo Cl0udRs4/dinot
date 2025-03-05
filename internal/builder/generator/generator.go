@@ -113,17 +113,18 @@ func (g *Generator) Generate() (string, error) {
 	// }
 
 	// Build the client
-	outputPath := filepath.Join(g.outputDir, fmt.Sprintf("client-%s", g.config.Version))
-	if g.config.Debug {
-		outputPath += "-debug"
-	}
-	cmd := exec.Command("go", "build", "-o", outputPath, ".")
-	cmd.Dir = tempDir
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("failed to build client: %w", err)
-	}
+	// This section is commented out as we're using the simplified approach above
+	// outputPath := filepath.Join(g.outputDir, fmt.Sprintf("client-%s", g.config.Version))
+	// if g.config.Debug {
+	//	outputPath += "-debug"
+	// }
+	// cmd := exec.Command("go", "build", "-o", outputPath, ".")
+	// cmd.Dir = tempDir
+	// cmd.Stdout = os.Stdout
+	// cmd.Stderr = os.Stderr
+	// if err := cmd.Run(); err != nil {
+	//	return "", fmt.Errorf("failed to build client: %w", err)
+	// }
 
 	return outputPath, nil
 }

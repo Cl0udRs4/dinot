@@ -17,13 +17,13 @@ import (
 type EncryptedListener struct {
     baseListener     Listener
     messageProcessor *encryption.MessageProcessor
-    clientManager    *client.Manager
+    clientManager    *client.ClientManager
     logger           *logging.Logger
     mu               sync.RWMutex
 }
 
 // NewEncryptedListener creates a new encrypted listener
-func NewEncryptedListener(baseListener Listener, clientManager *client.Manager, logger *logging.Logger) *EncryptedListener {
+func NewEncryptedListener(baseListener Listener, clientManager *client.ClientManager, logger *logging.Logger) *EncryptedListener {
     return &EncryptedListener{
         baseListener:     baseListener,
         messageProcessor: encryption.NewMessageProcessor(),
@@ -34,7 +34,7 @@ func NewEncryptedListener(baseListener Listener, clientManager *client.Manager, 
 
 // Start starts the encrypted listener
 func (l *EncryptedListener) Start(ctx context.Context) error {
-    return l.baseListener.Start(ctx)
+    return l.baseListener.Start(ctx, l.HandleConnection)
 }
 
 // Stop stops the encrypted listener
@@ -47,9 +47,19 @@ func (l *EncryptedListener) GetProtocol() string {
     return l.baseListener.GetProtocol()
 }
 
-// GetAddress returns the address of the base listener
-func (l *EncryptedListener) GetAddress() string {
-    return l.baseListener.GetAddress()
+// GetConfig returns the configuration of the base listener
+func (l *EncryptedListener) GetConfig() Config {
+    return l.baseListener.GetConfig()
+}
+
+// GetStatus returns the status of the base listener
+func (l *EncryptedListener) GetStatus() Status {
+    return l.baseListener.GetStatus()
+}
+
+// UpdateConfig updates the configuration of the base listener
+func (l *EncryptedListener) UpdateConfig(config Config) error {
+    return l.baseListener.UpdateConfig(config)
 }
 
 // HandleConnection handles a new connection with encryption support
@@ -61,14 +71,15 @@ func (l *EncryptedListener) HandleConnection(conn net.Conn) {
     clientEnc := l.messageProcessor.RegisterClient(clientID)
     
     // Register the client with the client manager
-    c := client.NewClient(clientID, conn.RemoteAddr().String(), l.GetProtocol())
+    c := client.NewClient(clientID, "Client-"+clientID, conn.RemoteAddr().String(), "unknown", "unknown", []string{}, l.GetProtocol())
     l.clientManager.RegisterClient(c)
     
-    l.logger.Info("New encrypted connection", map[string]interface{}{
-        "client_id":  clientID,
-        "remote_addr": conn.RemoteAddr().String(),
-        "protocol":    l.GetProtocol(),
-    })
+    // Remove the unused variable warning
+    _ = clientEnc
+    
+    // Log new connection
+    fmt.Printf("New encrypted connection: client_id=%s, remote_addr=%s, protocol=%s\n", 
+        clientID, conn.RemoteAddr().String(), l.GetProtocol())
     
     // Handle the connection
     go l.handleClient(conn, clientID)
@@ -79,9 +90,7 @@ func (l *EncryptedListener) handleClient(conn net.Conn, clientID string) {
     defer func() {
         conn.Close()
         l.clientManager.UnregisterClient(clientID)
-        l.logger.Info("Client disconnected", map[string]interface{}{
-            "client_id": clientID,
-        })
+        fmt.Printf("Client disconnected: client_id=%s\n", clientID)
     }()
     
     buffer := make([]byte, 4096)
@@ -93,10 +102,7 @@ func (l *EncryptedListener) handleClient(conn net.Conn, clientID string) {
         // Read data from the connection
         n, err := conn.Read(buffer)
         if err != nil {
-            l.logger.Error("Error reading from connection", map[string]interface{}{
-                "client_id": clientID,
-                "error":     err.Error(),
-            })
+            fmt.Printf("Error reading from connection: client_id=%s, error=%s\n", clientID, err.Error())
             break
         }
         
@@ -104,40 +110,28 @@ func (l *EncryptedListener) handleClient(conn net.Conn, clientID string) {
         data := buffer[:n]
         processedData, err := l.messageProcessor.ProcessIncomingMessage(clientID, data)
         if err != nil {
-            l.logger.Error("Error processing incoming message", map[string]interface{}{
-                "client_id": clientID,
-                "error":     err.Error(),
-            })
+            fmt.Printf("Error processing incoming message: client_id=%s, error=%s\n", clientID, err.Error())
             continue
         }
         
         // Handle the processed message
         response, err := l.handleMessage(clientID, processedData)
         if err != nil {
-            l.logger.Error("Error handling message", map[string]interface{}{
-                "client_id": clientID,
-                "error":     err.Error(),
-            })
+            fmt.Printf("Error handling message: client_id=%s, error=%s\n", clientID, err.Error())
             continue
         }
         
         // Process the outgoing message
         encryptedResponse, err := l.messageProcessor.ProcessOutgoingMessage(clientID, response)
         if err != nil {
-            l.logger.Error("Error processing outgoing message", map[string]interface{}{
-                "client_id": clientID,
-                "error":     err.Error(),
-            })
+            fmt.Printf("Error processing outgoing message: client_id=%s, error=%s\n", clientID, err.Error())
             continue
         }
         
         // Send the response
         _, err = conn.Write(encryptedResponse)
         if err != nil {
-            l.logger.Error("Error writing to connection", map[string]interface{}{
-                "client_id": clientID,
-                "error":     err.Error(),
-            })
+            fmt.Printf("Error writing to connection: client_id=%s, error=%s\n", clientID, err.Error())
             break
         }
     }
@@ -176,8 +170,8 @@ func (l *EncryptedListener) handleCommandMessage(clientID, command string, param
         return nil, err
     }
     
-    // Update the client's last activity time
-    c.UpdateLastActivity()
+    // Update the client's last seen time
+    c.UpdateLastSeen()
     
     // Handle different commands
     switch command {
@@ -211,30 +205,23 @@ func (l *EncryptedListener) handleRegisterCommand(clientID string, params json.R
         return nil, err
     }
     
-    // Update client information
-    c.SetHostname(registerParams.Hostname)
-    c.SetOS(registerParams.OS)
-    c.SetArch(registerParams.Arch)
-    c.SetModules(registerParams.Modules)
-    c.SetProtocols(registerParams.Protocols)
+    // Update client information - directly update fields since setter methods don't exist
+    // Note: In a real implementation, we would add these setter methods to the Client struct
+    c.Name = registerParams.Hostname
+    c.OS = registerParams.OS
+    c.Architecture = registerParams.Arch
+    c.SupportedModules = registerParams.Modules
+    // We don't have a direct field for protocols in the Client struct
     
-    l.logger.Info("Client registered", map[string]interface{}{
-        "client_id": clientID,
-        "hostname":  registerParams.Hostname,
-        "os":        registerParams.OS,
-        "arch":      registerParams.Arch,
-        "modules":   registerParams.Modules,
-        "protocols": registerParams.Protocols,
-    })
+    fmt.Printf("Client registered: client_id=%s, hostname=%s, os=%s, arch=%s\n", 
+        clientID, registerParams.Hostname, registerParams.OS, registerParams.Arch)
     
     // Get client encryption info
     clientEnc, err := l.messageProcessor.GetClientEncryption(clientID)
     if err == nil {
         encType := clientEnc.GetEncryptionType()
-        l.logger.Info("Client encryption", map[string]interface{}{
-            "client_id":      clientID,
-            "encryption_type": encType,
-        })
+        fmt.Printf("Client encryption: client_id=%s, encryption_type=%s\n", 
+            clientID, encType)
     }
     
     return []byte(`{"status":"success","message":"client registered"}`), nil
@@ -259,23 +246,23 @@ func (l *EncryptedListener) handleStatusCommand(clientID string) ([]byte, error)
     status := struct {
         Status      string   `json:"status"`
         ClientID    string   `json:"client_id"`
-        Hostname    string   `json:"hostname"`
+        Name        string   `json:"name"`
         OS          string   `json:"os"`
         Arch        string   `json:"arch"`
         Modules     []string `json:"modules"`
-        Protocols   []string `json:"protocols"`
+        Protocol    string   `json:"protocol"`
         Encryption  string   `json:"encryption"`
-        LastActivity string   `json:"last_activity"`
+        LastSeen    string   `json:"last_seen"`
     }{
         Status:      "success",
         ClientID:    c.ID,
-        Hostname:    c.Hostname,
+        Name:        c.Name,
         OS:          c.OS,
-        Arch:        c.Arch,
-        Modules:     c.Modules,
-        Protocols:   c.Protocols,
+        Arch:        c.Architecture,
+        Modules:     c.SupportedModules,
+        Protocol:    c.Protocol,
         Encryption:  encType,
-        LastActivity: c.LastActivity.Format(time.RFC3339),
+        LastSeen:    c.LastSeen.Format(time.RFC3339),
     }
     
     return json.Marshal(status)
@@ -289,8 +276,8 @@ func (l *EncryptedListener) handleHeartbeatMessage(clientID string) ([]byte, err
         return nil, err
     }
     
-    // Update the client's last activity time
-    c.UpdateLastActivity()
+    // Update the client's last seen time
+    c.UpdateLastSeen()
     
     return []byte(`{"status":"success","message":"heartbeat received"}`), nil
 }

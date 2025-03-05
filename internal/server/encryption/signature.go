@@ -14,9 +14,9 @@ import (
 )
 
 var (
-	// ErrInvalidSignature is returned when a signature is invalid
-	ErrInvalidSignature = errors.New("invalid signature")
-	// ErrInvalidKey is returned when a key is invalid
+	// ErrInvalidSignatureFormat is returned when a signature format is invalid
+	ErrInvalidSignatureFormat = errors.New("invalid signature format")
+	// ErrInvalidKeyFormat is returned when a key is invalid
 	ErrInvalidKeyFormat = errors.New("invalid key format")
 	// ErrKeyNotFound is returned when a key is not found
 	ErrKeyNotFound = errors.New("key not found")

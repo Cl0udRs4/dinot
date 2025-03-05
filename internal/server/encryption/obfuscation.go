@@ -3,7 +3,6 @@ package encryption
 import (
 	"crypto/rand"
 	"errors"
-	"math"
 	"math/big"
 	"time"
 )

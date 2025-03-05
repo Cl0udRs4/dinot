@@ -7,8 +7,6 @@ import (
 	"errors"
 	"sync"
 	"time"
-
-	clientenc "github.com/Cl0udRs4/dinot/internal/client/encryption"
 )
 
 var (

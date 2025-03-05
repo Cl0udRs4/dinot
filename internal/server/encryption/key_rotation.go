@@ -151,12 +151,12 @@ func (r *KeyRotator) rotateClientKey(clientEnc *ClientEncryption) error {
 
 	switch clientEnc.GetEncryptionType() {
 	case EncryptionAES:
-		// Get the key size from the current encrypter
-		aesEncrypter, ok := encrypter.(*clientenc.AESEncrypter)
+		// For AES, we'll use the default key size (32 bytes for AES-256)
+		_, ok := encrypter.(*clientenc.AESEncrypter)
 		if !ok {
 			return errors.New("invalid encrypter type")
 		}
-		keySize := len(aesEncrypter.GetKey())
+		keySize := 32 // Use AES-256 by default
 		newEncrypter, err = clientenc.NewAESEncrypter(keySize)
 	case EncryptionChaCha20:
 		newEncrypter, err = clientenc.NewChaCha20Encrypter()

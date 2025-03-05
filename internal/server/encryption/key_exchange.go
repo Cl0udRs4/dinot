@@ -1,7 +1,6 @@
 package encryption
 
 import (
-    "encoding/json"
     "errors"
     "time"
 

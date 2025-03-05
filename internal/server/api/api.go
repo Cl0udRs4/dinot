@@ -82,7 +82,7 @@ func (h *APIHandler) Start(address string) error {
 	// Module management routes
 	http.HandleFunc("/api/modules", h.authMiddleware(h.handleModules))
 	http.HandleFunc("/api/modules/", h.authMiddleware(h.handleModule))
-	http.HandleFunc("/api/clients/", h.authMiddleware(h.handleClientModules))
+	http.HandleFunc("/api/clients/modules", h.authMiddleware(h.handleClientModules))
 
 	// Start the HTTP server
 	fmt.Printf("Starting HTTP API server on %s\n", address)

@@ -153,7 +153,7 @@ func (m *HeartbeatMonitor) checkClients() {
 	timeout := m.timeout
 	m.mu.RUnlock()
 	
-	offlineClients := m.clientManager.CheckOfflineClients(timeout)
+	_ = m.clientManager.CheckOfflineClients(timeout)
 	
 	// Here you could add additional logic to handle offline clients,
 	// such as logging, sending notifications, or attempting to reconnect

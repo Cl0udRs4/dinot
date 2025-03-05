@@ -55,11 +55,14 @@ func TestResourceMonitor(t *testing.T) {
 	monitorMinimal := NewResourceMonitor(logger, configMinimal)
 	monitorMinimal.Start()
 	
-	// Wait for stats to be collected
-	time.Sleep(150 * time.Millisecond)
+	// Wait for stats to be collected - increased wait time to ensure CPU stats are collected
+	time.Sleep(300 * time.Millisecond)
 	
 	// Get latest stats
 	statsMinimal := monitorMinimal.GetLatestStats()
+	
+	// Log the CPU stats for debugging
+	t.Logf("CPU stats: %f", statsMinimal.CPUUsage)
 	
 	// Verify only CPU stats were collected
 	if statsMinimal.CPUUsage == 0 {

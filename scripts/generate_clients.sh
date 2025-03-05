@@ -30,7 +30,7 @@ echo "Generating WebSocket client..."
 
 # Generate ICMP client (requires sudo for running)
 echo "Generating ICMP client..."
-./bin/builder -protocol=icmp -domain=localhost -servers=127.0.0.1 -modules=shell,system -encryption=chacha20 -output="$OUTPUT_DIR/client_icmp_chacha20"
+sudo ./bin/builder -protocol=icmp -domain=localhost -servers=127.0.0.1 -modules=shell,system -encryption=chacha20 -output="$OUTPUT_DIR/client_icmp_chacha20"
 
 # Generate DNS client
 echo "Generating DNS client..."
